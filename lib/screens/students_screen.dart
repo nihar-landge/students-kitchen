@@ -1,0 +1,87 @@
+// lib/screens/students_screen.dart
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../models/student_model.dart';
+import '../services/firestore_service.dart';
+
+class StudentsScreen extends StatefulWidget {
+  final FirestoreService firestoreService;
+  final VoidCallback onAddStudent;
+  final Function(Student) onViewStudent;
+
+  StudentsScreen({required this.firestoreService, required this.onAddStudent, required this.onViewStudent});
+
+  @override
+  _StudentsScreenState createState() => _StudentsScreenState();
+}
+
+class _StudentsScreenState extends State<StudentsScreen> {
+  String _searchTerm = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Students List')),
+      body: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: TextField(
+              decoration: InputDecoration(
+                labelText: 'Search Students by Name (starts with)...',
+                hintText: 'Enter name...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
+                filled: true, fillColor: Colors.grey[100],
+              ),
+              onChanged: (value) {
+                setState(() { _searchTerm = value; });
+              },
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<Student>>(
+              stream: widget.firestoreService.getStudentsStream(nameSearchTerm: _searchTerm.isNotEmpty ? _searchTerm : null),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+                if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator());
+
+                final studentsToDisplay = snapshot.data ?? [];
+
+                if (studentsToDisplay.isEmpty) {
+                  return Center(child: Text(_searchTerm.isNotEmpty ? 'No students found matching "$_searchTerm".' : 'No students added yet.'));
+                }
+
+                return ListView.builder(
+                  itemCount: studentsToDisplay.length,
+                  itemBuilder: (context, index) {
+                    final student = studentsToDisplay[index];
+                    return Card(
+                      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: student.currentCyclePaid ? Colors.green[100] : Colors.red[100],
+                          child: Icon(student.currentCyclePaid ? Icons.check : Icons.close, color: student.currentCyclePaid ? Colors.green[700] : Colors.red[700]),
+                        ),
+                        title: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
+                        subtitle: Text('Contact: ${student.contactNumber}\nEnds: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)} (Rem: ${student.daysRemaining} days)'),
+                        trailing: Icon(Icons.arrow_forward_ios, size: 16),
+                        isThreeLine: true,
+                        onTap: () => widget.onViewStudent(student),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: widget.onAddStudent,
+        icon: Icon(Icons.add), label: Text('Add Student'),
+        backgroundColor: Colors.teal, foregroundColor: Colors.white,
+      ),
+    );
+  }
+}
