@@ -1,11 +1,36 @@
 // lib/services/firestore_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/student_model.dart'; // Correct relative path
+import '../models/student_model.dart';
+import '../models/app_settings_model.dart'; // Import AppSettings model
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final String _studentsCollection = 'students';
+  final String _settingsCollection = 'settings'; // For app settings
 
+  // --- App Settings Methods ---
+  Stream<AppSettings> getAppSettingsStream() {
+    return _db
+        .collection(_settingsCollection)
+        .doc(APP_SETTINGS_DOC_ID) // Use fixed document ID
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.exists) {
+        return AppSettings.fromSnapshot(snapshot);
+      }
+      // Return default settings if document doesn't exist
+      return AppSettings(standardMonthlyFee: 2000.0); // Default fee
+    });
+  }
+
+  Future<void> updateStandardMonthlyFee(double newFee) {
+    return _db
+        .collection(_settingsCollection)
+        .doc(APP_SETTINGS_DOC_ID)
+        .set({'standardMonthlyFee': newFee}, SetOptions(merge: true)); // Use set with merge to create if not exists or update
+  }
+
+  // --- Student Methods (Existing methods remain the same) ---
   Stream<List<Student>> getStudentsStream({String? nameSearchTerm}) {
     Query query = _db.collection(_studentsCollection);
 

@@ -17,17 +17,32 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   DateTime _selectedDate = DateTime.now();
   MealType _selectedMealType = MealType.morning;
   Map<String, AttendanceStatus> _attendanceStatusMap = {};
-  List<Student> _allActiveStudentsForDate = []; // All active students for the selected date
-  List<Student> _displayedStudents = []; // Students to display after search/sort
+  List<Student> _allActiveStudentsForDate = [];
+  List<Student> _displayedStudents = [];
   bool _isLoading = true;
   String _searchTerm = "";
   bool _sortAbsenteesTop = false;
   int _absentCount = 0;
 
+  bool _isSearching = false; // To toggle search bar visibility
+  final TextEditingController _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _loadActiveStudentsAndInitializeAttendance();
+    _searchController.addListener(() {
+      if (_searchController.text != _searchTerm) {
+        _searchTerm = _searchController.text;
+        _filterAndSortDisplayedStudents();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void setStateIfMounted(f) {
@@ -51,11 +66,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 entry.date.month == _selectedDate.month &&
                 entry.date.day == _selectedDate.day &&
                 entry.mealType == _selectedMealType,
-            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent) // Default to Absent
+            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent)
         );
         _attendanceStatusMap[student.id] = existingEntry.status;
       }
-      _filterAndSortDisplayedStudents(); // Initial filter and sort
+      _filterAndSortDisplayedStudents();
     } catch (e) {
       if (!mounted) return;
       print("Error loading students for attendance: $e");
@@ -67,31 +82,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   void _filterAndSortDisplayedStudents() {
     List<Student> tempStudents = List.from(_allActiveStudentsForDate);
 
-    // Search
     if (_searchTerm.isNotEmpty) {
       String lowerSearchTerm = _searchTerm.toLowerCase();
       tempStudents = tempStudents.where((student) {
         return student.name.toLowerCase().contains(lowerSearchTerm) ||
-            student.id.contains(lowerSearchTerm); // ID is contactNumber
+            student.id.contains(lowerSearchTerm);
       }).toList();
     }
 
-    // Sort
     if (_sortAbsenteesTop) {
       tempStudents.sort((a, b) {
         bool isAAbsent = _attendanceStatusMap[a.id] == AttendanceStatus.absent;
         bool isBAbsent = _attendanceStatusMap[b.id] == AttendanceStatus.absent;
-        if (isAAbsent && !isBAbsent) return -1; // a (absent) comes before b (present)
-        if (!isAAbsent && isBAbsent) return 1;  // b (absent) comes before a (present)
-        return a.name.compareTo(b.name); // Default sort by name
+        if (isAAbsent && !isBAbsent) return -1;
+        if (!isAAbsent && isBAbsent) return 1;
+        return a.name.compareTo(b.name);
       });
     } else {
-      tempStudents.sort((a, b) => a.name.compareTo(b.name)); // Default sort by name
+      tempStudents.sort((a, b) => a.name.compareTo(b.name));
     }
 
     _displayedStudents = tempStudents;
-    _calculateAbsentCount(); // Update absent count based on displayed (could also be on _allActiveStudentsForDate based on requirement)
-    // For now, let's count absentees from the currently displayed/searched list for clarity on screen
+    _calculateAbsentCount();
+
     setStateIfMounted((){});
   }
 
@@ -111,7 +124,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _saveAttendance() async {
-    if (_allActiveStudentsForDate.isEmpty) { // Check against all active students, not just displayed ones
+    if (_allActiveStudentsForDate.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No active students to save attendance for.')));
       return;
@@ -120,7 +133,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     WriteBatch batch = FirebaseFirestore.instance.batch();
 
-    for (var student in _allActiveStudentsForDate) { // Iterate over all active students for the date
+    for (var student in _allActiveStudentsForDate) {
       final status = _attendanceStatusMap[student.id];
       if (status == null) continue;
 
@@ -150,19 +163,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  void _markAll(AttendanceStatus status) {
-    setStateIfMounted(() {
-      for (var student in _displayedStudents) { // Mark all for currently displayed students
-        _attendanceStatusMap[student.id] = status;
-      }
-      _calculateAbsentCount();
-    });
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      autofocus: true,
+      decoration: InputDecoration(
+        hintText: 'Search by Name or ID...',
+        border: InputBorder.none,
+        hintStyle: TextStyle(color: Colors.white70),
+      ),
+      style: TextStyle(color: Colors.white, fontSize: 16.0),
+      onChanged: (value) {
+        // Listener on controller handles update
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Mark Attendance')),
+      appBar: AppBar(
+        title: _isSearching ? _buildSearchField() : Text('Mark Attendance'),
+        actions: <Widget>[
+          IconButton(
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setStateIfMounted(() {
+                _isSearching = !_isSearching;
+                if (!_isSearching) {
+                  _searchController.clear(); // Clear search when closing
+                  _searchTerm = ""; // Reset search term
+                  _filterAndSortDisplayedStudents(); // Refresh list
+                }
+              });
+            },
+          ),
+        ],
+      ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : Column(
@@ -189,21 +226,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         },
                         style: SegmentedButton.styleFrom(selectedForegroundColor: Colors.white, selectedBackgroundColor: Colors.teal)),
                   ])))),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search by Name or ID...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)),
-                isDense: true,
-              ),
-              onChanged: (value) {
-                _searchTerm = value;
-                _filterAndSortDisplayedStudents();
-              },
-            ),
-          ),
+          // Removed the static search bar from here
           Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
@@ -225,12 +248,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ],
               )
           ),
-          Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0.0),
-              child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                ElevatedButton.icon(icon: Icon(Icons.done_all), label: Text('Mark All (Displayed) Present'), onPressed: () => _markAll(AttendanceStatus.present), style: ElevatedButton.styleFrom(backgroundColor: Colors.green[100], foregroundColor: Colors.green[800])),
-                ElevatedButton.icon(icon: Icon(Icons.cancel_presentation_outlined), label: Text('Mark All (Displayed) Absent'), onPressed: () => _markAll(AttendanceStatus.absent), style: ElevatedButton.styleFrom(backgroundColor: Colors.red[100], foregroundColor: Colors.red[800])),
-              ])),
           Expanded(
               child: _displayedStudents.isEmpty
                   ? Center(child: Text(_searchTerm.isNotEmpty ? 'No students found matching "$_searchTerm".' : 'No active students for the selected date.'))
@@ -238,7 +255,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   itemCount: _displayedStudents.length,
                   itemBuilder: (context, index) {
                     final student = _displayedStudents[index];
-                    final currentStatus = _attendanceStatusMap[student.id] ?? AttendanceStatus.absent; // Default to absent visually
+                    final currentStatus = _attendanceStatusMap[student.id] ?? AttendanceStatus.absent;
                     return Card(
                         margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         child: Padding(
@@ -251,8 +268,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                       label: Text('Present'), selected: currentStatus == AttendanceStatus.present,
                                       onSelected: (sel) { if (sel) setStateIfMounted(() {
                                         _attendanceStatusMap[student.id] = AttendanceStatus.present;
-                                        _calculateAbsentCount(); // Recalculate on change
-                                        if(_sortAbsenteesTop) _filterAndSortDisplayedStudents(); // Resort if needed
+                                        _calculateAbsentCount();
+                                        if(_sortAbsenteesTop) _filterAndSortDisplayedStudents();
                                       }); },
                                       selectedColor: Colors.greenAccent[100], labelStyle: TextStyle(color: currentStatus == AttendanceStatus.present ? Colors.green[800] : Colors.black54)),
                                   SizedBox(width: 8),
@@ -260,8 +277,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                       label: Text('Absent'), selected: currentStatus == AttendanceStatus.absent,
                                       onSelected: (sel) { if (sel) setStateIfMounted(() {
                                         _attendanceStatusMap[student.id] = AttendanceStatus.absent;
-                                        _calculateAbsentCount(); // Recalculate on change
-                                        if(_sortAbsenteesTop) _filterAndSortDisplayedStudents(); // Resort if needed
+                                        _calculateAbsentCount();
+                                        if(_sortAbsenteesTop) _filterAndSortDisplayedStudents();
                                       }); },
                                       selectedColor: Colors.redAccent[100], labelStyle: TextStyle(color: currentStatus == AttendanceStatus.absent ? Colors.red[800] : Colors.black54)),
                                 ]))));
@@ -270,7 +287,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
                 icon: Icon(Icons.save_alt_rounded), label: Text('Save All Attendance'),
-                onPressed: _allActiveStudentsForDate.isNotEmpty ? _saveAttendance : null, // Enable based on if there are any active students at all
+                onPressed: _allActiveStudentsForDate.isNotEmpty ? _saveAttendance : null,
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white, minimumSize: Size(double.infinity, 50), textStyle: TextStyle(fontSize: 18))),
           ),
         ],

@@ -2,12 +2,38 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../models/student_model.dart';
+import '../models/app_settings_model.dart';
 import '../services/firestore_service.dart';
 import '../utils/string_extensions.dart';
 
-// Define the standard monthly fee here or fetch from a configuration service/document
-const double STANDARD_MONTHLY_FEE = 2000.0;
+// Helper class for displaying monthly dues
+class MonthlyDueItem {
+  final String monthYearDisplay;
+  final DateTime monthStartDate;
+  final double feeDueForMonth;
+  double amountPaidForMonth;
+  String status;
+
+  MonthlyDueItem({
+    required this.monthYearDisplay,
+    required this.monthStartDate,
+    required this.feeDueForMonth,
+    this.amountPaidForMonth = 0.0,
+  }) : status = (amountPaidForMonth >= feeDueForMonth)
+      ? "Paid"
+      : (amountPaidForMonth > 0 ? "Partially Paid" : "Unpaid");
+
+  double get remainingForMonth => feeDueForMonth - amountPaidForMonth;
+
+  void updateStatus() {
+    status = (amountPaidForMonth >= feeDueForMonth)
+        ? "Paid"
+        : (amountPaidForMonth > 0 ? "Partially Paid" : "Unpaid");
+  }
+}
+
 
 class StudentDetailScreen extends StatefulWidget {
   final String studentId;
@@ -24,6 +50,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   final _compensatoryReasonController = TextEditingController();
   final _paymentAmountController = TextEditingController();
   DateTime _selectedPaymentDate = DateTime.now();
+  DateTime? _paymentForMonth;
 
   @override
   void dispose() {
@@ -37,27 +64,98 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     if (mounted) setState(f);
   }
 
-  double _calculateAmountPaidForCurrentCycle(Student student) {
-    double amountPaid = 0.0;
-    DateTime currentCycleStartDate = student.messStartDate;
-    // A simple way: sum all payments that match the current cycle's start date.
-    // More robust logic might be needed if payments can span multiple partial cycles
-    // or if a cycle is defined by a start and end date in payment history.
-    for (var entry in student.paymentHistory) {
-      if (entry.paid &&
-          entry.cycleStartDate.year == currentCycleStartDate.year &&
-          entry.cycleStartDate.month == currentCycleStartDate.month &&
-          entry.cycleStartDate.day == currentCycleStartDate.day) {
-        amountPaid += entry.amountPaid;
+  List<MonthlyDueItem> _calculateMonthlyDuesWithPaymentAllocation(
+      Student student, double standardMonthlyFee, DateTime upToDate) {
+    List<MonthlyDueItem> monthlyDues = [];
+    if (student.messStartDate.isAfter(upToDate) &&
+        !(student.messStartDate.year == upToDate.year && student.messStartDate.month == upToDate.month)) {
+      // If mess start is in a future month compared to 'upToDate', no dues yet up to 'upToDate'.
+      // However, we typically want to show the current month if student is active.
+      // Let's ensure 'upToDate' covers at least the start of the current service period.
+    }
+
+
+    DateTime monthIterator = DateTime(student.messStartDate.year, student.messStartDate.month, 1);
+    // Determine the last month to generate dues for.
+    // It should be the current month, or the student's effective end date's month if that's past & relevant.
+    DateTime today = DateTime.now();
+    DateTime lastMonthToConsider = DateTime(today.year, today.month, 1);
+    if (student.effectiveMessEndDate.isBefore(today) && student.effectiveMessEndDate.isAfter(student.messStartDate)) {
+      lastMonthToConsider = DateTime(student.effectiveMessEndDate.year, student.effectiveMessEndDate.month, 1);
+    }
+    // If messStartDate is in the future compared to today, we still might want to show the first month's due.
+    if (monthIterator.isAfter(lastMonthToConsider) &&
+        (monthIterator.year == student.messStartDate.year && monthIterator.month == student.messStartDate.month) ) {
+      lastMonthToConsider = monthIterator;
+    }
+
+
+    while (monthIterator.isBefore(lastMonthToConsider) || monthIterator.isAtSameMomentAs(lastMonthToConsider)) {
+      DateTime monthEndForIterator = DateTime(monthIterator.year, monthIterator.month + 1, 0);
+      // A student is active in a month if their service period overlaps with that month.
+      bool isActiveThisMonth = !(student.messStartDate.isAfter(monthEndForIterator) || student.effectiveMessEndDate.isBefore(monthIterator));
+
+      if (isActiveThisMonth) {
+        monthlyDues.add(MonthlyDueItem(
+          monthYearDisplay: DateFormat('MMMM yyyy').format(monthIterator), // Corrected DateFormat
+          monthStartDate: monthIterator,
+          feeDueForMonth: standardMonthlyFee,
+        ));
+      }
+      // Move to the first day of the next month
+      if (monthIterator.month == 12) {
+        monthIterator = DateTime(monthIterator.year + 1, 1, 1);
+      } else {
+        monthIterator = DateTime(monthIterator.year, monthIterator.month + 1, 1);
       }
     }
-    return amountPaid;
+
+    // Allocate payments strictly to the month they were recorded for
+    for (var payment in student.paymentHistory) {
+      if (!payment.paid) continue; // Skip entries that are not actual payments (e.g., if 'paid' was false)
+
+      DateTime paymentForMonthStart = DateTime(payment.cycleStartDate.year, payment.cycleStartDate.month, 1);
+
+      for (var dueItem in monthlyDues) {
+        if (dueItem.monthStartDate.isAtSameMomentAs(paymentForMonthStart)) {
+          dueItem.amountPaidForMonth += payment.amountPaid;
+          dueItem.updateStatus();
+          break;
+        }
+      }
+    }
+    return monthlyDues;
   }
 
-
-  void _recordPaymentDialog(Student student) {
+  void _recordPaymentDialog(Student student, List<MonthlyDueItem> monthlyDues) {
+    // ... (Dialog content unchanged, logic for saving payment might need to ensure
+    // PaymentHistoryEntry.cycleStartDate and cycleEndDate correctly reflect the month)
+    // The current _recordPaymentDialog seems to set cycleStartDate to _paymentForMonth,
+    // and cycleEndDate to the end of that _paymentForMonth. This is correct for the new logic.
     _paymentAmountController.clear();
     _selectedPaymentDate = DateTime.now();
+    _paymentForMonth = null;
+
+    MonthlyDueItem? suggestedMonth = monthlyDues.firstWhere(
+            (due) => due.status != "Paid",
+        orElse: () {
+          // If all listed dues are paid, or no dues yet, suggest current month
+          DateTime now = DateTime.now();
+          DateTime currentMonthStart = DateTime(now.year, now.month, 1);
+          // Check if current month is already in the list, if not, create a temporary item for suggestion
+          var currentMonthDueItem = monthlyDues.firstWhere(
+                  (d) => d.monthStartDate.isAtSameMomentAs(currentMonthStart),
+              orElse: () => MonthlyDueItem(
+                  monthYearDisplay: DateFormat("MMMM yyyy").format(currentMonthStart),
+                  monthStartDate: currentMonthStart,
+                  feeDueForMonth: 0 // This is just for display in dropdown, actual fee comes from settings
+              )
+          );
+          return currentMonthDueItem;
+        }
+    );
+    _paymentForMonth = suggestedMonth.monthStartDate;
+
 
     showDialog(
       context: context,
@@ -85,6 +183,44 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                         }
                       })
                 ]),
+                SizedBox(height: 16),
+                // Create a list of months for the dropdown, including potentially the current month if not in dues.
+                Builder(builder: (context) {
+                  List<MonthlyDueItem> dropdownMonths = List.from(monthlyDues);
+                  DateTime now = DateTime.now();
+                  DateTime currentMonthStartForDropdown = DateTime(now.year, now.month, 1);
+                  if (!dropdownMonths.any((due) => due.monthStartDate.isAtSameMomentAs(currentMonthStartForDropdown))) {
+                    dropdownMonths.add(MonthlyDueItem(
+                        monthYearDisplay: DateFormat("MMMM yyyy").format(currentMonthStartForDropdown),
+                        monthStartDate: currentMonthStartForDropdown,
+                        feeDueForMonth: 0 // Placeholder fee for display
+                    ));
+                    dropdownMonths.sort((a,b) => a.monthStartDate.compareTo(b.monthStartDate));
+                  }
+
+                  if (dropdownMonths.isEmpty && _paymentForMonth == null) {
+                    // If student has no dues and current month is not added, default _paymentForMonth
+                    _paymentForMonth = currentMonthStartForDropdown;
+                  }
+
+
+                  return DropdownButtonFormField<DateTime>(
+                    decoration: InputDecoration(labelText: "Payment For Month", border: OutlineInputBorder()),
+                    value: _paymentForMonth,
+                    items: dropdownMonths
+                        .map((dueItem) => DropdownMenuItem<DateTime>(
+                      value: dueItem.monthStartDate,
+                      child: Text(dueItem.monthYearDisplay + (dueItem.feeDueForMonth > 0 && dueItem.remainingForMonth > 0 ? " (Due: ₹${dueItem.remainingForMonth.toStringAsFixed(0)})" : (dueItem.feeDueForMonth > 0 ? " (Cleared)" : ""))),
+                    ))
+                        .toList(),
+                    onChanged: (DateTime? newValue) {
+                      stfSetState(() {
+                        _paymentForMonth = newValue;
+                      });
+                    },
+                    validator: (value) => value == null ? 'Please select a month' : null,
+                  );
+                }),
               ]),
             ),
             actions: <Widget>[
@@ -98,18 +234,54 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter a valid positive amount.'), backgroundColor: Colors.red));
                       return;
                     }
+                    if (_paymentForMonth == null) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please select the month this payment is for.'), backgroundColor: Colors.red));
+                      return;
+                    }
+
                     List<PaymentHistoryEntry> updatedHistory = List.from(student.paymentHistory);
                     updatedHistory.add(PaymentHistoryEntry(
                         paymentDate: _selectedPaymentDate,
-                        cycleStartDate: student.messStartDate, // Payment for current cycle
-                        cycleEndDate: student.baseEndDate, // Base end of current cycle
+                        cycleStartDate: _paymentForMonth!,
+                        cycleEndDate: DateTime(_paymentForMonth!.year, _paymentForMonth!.month + 1, 0),
                         paid: true,
                         amountPaid: amount
                     ));
 
+                    bool updatedCurrentCyclePaidFlag = student.currentCyclePaid;
+                    final AppSettings appSettings = await widget.firestoreService.getAppSettingsStream().first;
+                    List<MonthlyDueItem> duesAfterPayment = _calculateMonthlyDuesWithPaymentAllocation(
+                        Student(
+                            id: student.id, name: student.name,
+                            messStartDate: student.messStartDate,
+                            compensatoryDays: student.compensatoryDays,
+                            currentCyclePaid: student.currentCyclePaid,
+                            attendanceLog: student.attendanceLog,
+                            paymentHistory: updatedHistory
+                        ),
+                        appSettings.standardMonthlyFee,
+                        DateTime.now()
+                    );
+
+                    DateTime currentActiveMonthStart = DateTime(student.messStartDate.year, student.messStartDate.month, 1);
+                    if (DateTime.now().isAfter(currentActiveMonthStart) && (DateTime.now().year > currentActiveMonthStart.year || DateTime.now().month > currentActiveMonthStart.month) ) {
+                      currentActiveMonthStart = DateTime(DateTime.now().year, DateTime.now().month, 1);
+                    }
+
+
+                    MonthlyDueItem? currentMonthDueInfo = duesAfterPayment.firstWhere(
+                            (due) => due.monthStartDate.isAtSameMomentAs(currentActiveMonthStart),
+                        orElse: () => MonthlyDueItem(monthYearDisplay: "N/A", monthStartDate: DateTime(0), feeDueForMonth: 0)
+                    );
+                    if(currentMonthDueInfo.monthStartDate.year != 0){
+                      updatedCurrentCyclePaidFlag = currentMonthDueInfo.status == "Paid";
+                    }
+
+
                     try {
                       await widget.firestoreService.updateStudentPartial(student.id, {
-                        'currentCyclePaid': true, // Or logic to determine if fully paid based on amount
+                        'currentCyclePaid': updatedCurrentCyclePaidFlag,
                         'paymentHistory': updatedHistory.map((e) => e.toMap()).toList(),
                       });
                       if (!mounted) return;
@@ -127,17 +299,11 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     );
   }
 
-  void _handlePaymentStatusChange(Student student) {
-    // If marking as PAID, always go through record payment to ensure amount is captured
-    // The currentCyclePaid status can be re-evaluated based on total paid vs standard fee
-    _recordPaymentDialog(student);
-    // The old "Mark as Unpaid" logic might need rethinking if you want to "void" a specific payment amount.
-    // For now, currentCyclePaid is just a general flag; actual payment details are in history.
-    // You could enhance this to check if STANDARD_MONTHLY_FEE is met.
+  void _handlePaymentStatusChange(Student student, List<MonthlyDueItem> monthlyDues) {
+    _recordPaymentDialog(student, monthlyDues);
   }
 
-  void _addCompensatoryDaysDialog(Student student) {
-    // ... (same as before, uses updateStudentPartial)
+  void _addCompensatoryDaysDialog(Student student) { /* ... same as before ... */
     _compensatoryDaysController.text = "0";
     _compensatoryReasonController.clear();
     showDialog(
@@ -176,43 +342,41 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     );
   }
 
-  void _renewMessCycle(Student student) async {
-    // ... (same as before, uses updateStudentPartial)
-    double amountPaidForEndingCycle = _calculateAmountPaidForCurrentCycle(student);
+  void _startNewServicePeriod(Student student) async { // Renamed from _renewMessCycle
+    DateTime newStartDateForStudent = student.effectiveMessEndDate.add(Duration(days: 1));
+    DateTime today = DateTime.now();
+    DateTime firstOfThisMonth = DateTime(today.year, today.month, 1);
+    DateTime firstOfNextMonth = DateTime(today.year, today.month +1, 1);
 
-    List<PaymentHistoryEntry> updatedHistory = List.from(student.paymentHistory);
-    // Add an entry to finalize the ending cycle's payment status based on what was actually paid
-    // This might duplicate if the last payment was already for this full cycle. Consider refining logic.
-    // For now, this just records the state at renewal.
-    bool wasEndingCycleConsideredPaid = amountPaidForEndingCycle >= STANDARD_MONTHLY_FEE; // Example logic
+    // If the effective end date is in the past, decide the new start.
+    // Usually, it would be the first of the current month if ending in a past month,
+    // or first of next month if ending in current month but already passed.
+    // Or simply the day after effectiveMessEndDate.
+    // Let's simplify: if effectiveMessEndDate is before today, start new cycle from firstOfThisMonth or firstOfNextMonth
+    // to align with monthly billing. If it's in future, newStartDateForStudent is fine.
 
-    updatedHistory.add(PaymentHistoryEntry(
-        paymentDate: DateTime.now(), // Date of renewal processing
-        cycleStartDate: student.messStartDate, // Old start date
-        cycleEndDate: student.effectiveMessEndDate, // Old effective end date
-        paid: wasEndingCycleConsideredPaid, // Use calculated or student.currentCyclePaid
-        amountPaid: amountPaidForEndingCycle
-    ));
+    if (student.effectiveMessEndDate.isBefore(firstOfThisMonth)) {
+      newStartDateForStudent = firstOfThisMonth; // Ended in a past month, start new from 1st of current
+    } else if (student.effectiveMessEndDate.isBefore(today)) { // Ended this month, but before today
+      newStartDateForStudent = firstOfNextMonth; // Start from 1st of next month
+    } // Else, if effectiveEndDate is today or in future, newStartDateForStudent (day after) is fine.
 
-    DateTime newStartDate = student.effectiveMessEndDate.add(Duration(days: 1));
 
     try {
       await widget.firestoreService.updateStudentPartial(student.id, {
-        'messStartDate': Timestamp.fromDate(newStartDate),
+        'messStartDate': Timestamp.fromDate(newStartDateForStudent),
         'compensatoryDays': 0,
-        'currentCyclePaid': false, // New cycle starts as unpaid
-        'paymentHistory': updatedHistory.map((e) => e.toMap()).toList(),
+        'currentCyclePaid': false,
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Mess cycle renewed for ${student.name}. Mark payment for new cycle.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('New service period for ${student.name} will start from ${DateFormat.yMMMd().format(newStartDateForStudent)}.')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error renewing cycle: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error starting new service period: $e'), backgroundColor: Colors.red));
     }
   }
 
-  void _showDeleteConfirmationDialog(Student student) {
-    // ... (same as before, uses firestoreService.deleteStudent)
+  void _showDeleteConfirmationDialog(Student student) { /* ... same as before ... */
     showDialog(
         context: context,
         builder: (BuildContext ctx) {
@@ -241,133 +405,230 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         });
   }
 
+  void _prepareAttendanceEvents(Student student, Map<DateTime, List<AttendanceStatus>> eventsMap) {
+    // ... (same as before)
+    eventsMap.clear();
+    for (var entry in student.attendanceLog) {
+      final day = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      if (eventsMap[day] == null) {
+        eventsMap[day] = [];
+      }
+      eventsMap[day]!.add(entry.status);
+    }
+  }
+
+  List<Widget> _getAttendanceMarkersForDay(DateTime day, Map<DateTime, List<AttendanceStatus>> eventsMap) {
+    // ... (same as before)
+    final normalizedDay = DateTime(day.year, day.month, day.day);
+    final statuses = eventsMap[normalizedDay];
+    if (statuses == null || statuses.isEmpty) return [];
+    if (statuses.contains(AttendanceStatus.present)) {
+      return [ Positioned( right: 1, bottom: 1, child: Icon(Icons.check_circle, color: Colors.green, size: 16)) ];
+    }
+    if (statuses.every((status) => status == AttendanceStatus.absent)) {
+      return [ Positioned( right: 1, bottom: 1, child: Icon(Icons.cancel, color: Colors.red, size: 16)) ];
+    }
+    return [];
+  }
+
+  void _showAttendanceLogDialog(Student student) {
+    // ... (same as before)
+    Map<DateTime, List<AttendanceStatus>> _dialogAttendanceEvents = {};
+    _prepareAttendanceEvents(student, _dialogAttendanceEvents);
+    DateTime _dialogFocusedDay = student.attendanceLog.isNotEmpty
+        ? student.attendanceLog.last.date
+        : DateTime.now();
+    DateTime? _dialogSelectedDay = _dialogFocusedDay;
+    CalendarFormat _dialogCalendarFormat = CalendarFormat.month;
+
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+            builder: (BuildContext context, StateSetter setStateDialog) {
+              return AlertDialog(
+                title: Text("Attendance Log for ${student.name}"),
+                content: Container(
+                  width: double.maxFinite,
+                  child: TableCalendar<AttendanceStatus>(
+                    firstDay: student.messStartDate.subtract(Duration(days: 90)),
+                    lastDay: DateTime.now().add(Duration(days: 365)),
+                    focusedDay: _dialogFocusedDay,
+                    calendarFormat: _dialogCalendarFormat,
+                    selectedDayPredicate: (day) => isSameDay(_dialogSelectedDay, day),
+                    onDaySelected: (selectedDay, focusedDay) {
+                      setStateDialog(() {
+                        _dialogSelectedDay = selectedDay;
+                        _dialogFocusedDay = focusedDay;
+                      });
+                    },
+                    onFormatChanged: (format) {
+                      if (_dialogCalendarFormat != format) {
+                        setStateDialog(() { _dialogCalendarFormat = format; });
+                      }
+                    },
+                    onPageChanged: (focusedDay) {
+                      setStateDialog(() { _dialogFocusedDay = focusedDay;});
+                    },
+                    calendarBuilders: CalendarBuilders(
+                      markerBuilder: (context, date, events) {
+                        final markers = _getAttendanceMarkersForDay(date, _dialogAttendanceEvents);
+                        if (markers.isNotEmpty) {
+                          return Stack(children: markers);
+                        }
+                        return null;
+                      },
+                    ),
+                    calendarStyle: CalendarStyle(
+                      todayDecoration: BoxDecoration(color: Colors.amber.shade200, shape: BoxShape.circle),
+                      selectedDecoration: BoxDecoration(color: Theme.of(context).primaryColor, shape: BoxShape.circle),
+                    ),
+                    headerStyle: HeaderStyle(formatButtonVisible: true, titleCentered: true),
+                  ),
+                ),
+                actions: <Widget>[ TextButton(child: Text("Close"), onPressed: () => Navigator.of(context).pop()) ],
+              );
+            }
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<Student?>(
-      stream: widget.firestoreService.getStudentStream(widget.studentId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(appBar: AppBar(title:Text("Loading...")), body: Center(child: CircularProgressIndicator()));
+    return StreamBuilder<AppSettings>(
+      stream: widget.firestoreService.getAppSettingsStream(),
+      builder: (context, appSettingsSnapshot) {
+        // ... (loading/error for app settings)
+        if (appSettingsSnapshot.connectionState == ConnectionState.waiting && !appSettingsSnapshot.hasData) {
+          return Scaffold(appBar: AppBar(title: Text("Loading Settings...")), body: Center(child: CircularProgressIndicator()));
         }
-        if (snapshot.hasError) {
-          return Scaffold(appBar: AppBar(title: Text("Error")), body: Center(child: Text('Error: ${snapshot.error}')));
-        }
-        if (!snapshot.hasData || snapshot.data == null) {
-          return Scaffold(appBar: AppBar(title: Text("Not Found")), body: Center(child: Text('Student not found.')));
+        if (appSettingsSnapshot.hasError) {
+          return Scaffold(appBar: AppBar(title: Text("Error")), body: Center(child: Text('Error loading app settings: ${appSettingsSnapshot.error}')));
         }
 
-        final student = snapshot.data!;
-        final double amountPaidForCurrentCycle = _calculateAmountPaidForCurrentCycle(student);
-        final double remainingAmount = STANDARD_MONTHLY_FEE - amountPaidForCurrentCycle;
-        // Update currentCyclePaid status based on if full amount is paid (optional, or keep it manual)
-        // bool isCurrentCycleFullyPaid = remainingAmount <= 0;
-        // if(student.currentCyclePaid != isCurrentCycleFullyPaid) {
-        //   Future.microtask(() => widget.firestoreService.updateStudentPartial(student.id, {'currentCyclePaid': isCurrentCycleFullyPaid}));
-        // }
+        final double standardMonthlyFee = appSettingsSnapshot.data?.standardMonthlyFee ?? 2000.0;
 
 
-        return WillPopScope(
-          onWillPop: () async { Navigator.pop(context, true); return true; },
-          child: Scaffold(
-            appBar: AppBar(
-              title: Text(student.name),
-              actions: [
-                IconButton(icon: Icon(Icons.delete_outline, color: Colors.redAccent[100]), tooltip: 'Delete Student', onPressed: () => _showDeleteConfirmationDialog(student)),
-              ],
-            ),
-            body: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ListView(
-                children: <Widget>[
-                  _buildDetailCard(context, title: 'Student Information', icon: Icons.person_pin_circle_outlined, children: [
-                    _buildInfoRow('Name:', student.name),
-                    _buildInfoRow('Contact (ID):', student.contactNumber),
-                  ]),
-                  SizedBox(height: 16),
-                  _buildDetailCard(context, title: 'Mess Cycle Information', icon: Icons.calendar_today_outlined, children: [
-                    _buildInfoRow('Cycle Start Date:', DateFormat.yMMMd().format(student.messStartDate)),
-                    _buildInfoRow('Base End Date:', DateFormat.yMMMd().format(student.baseEndDate)),
-                    _buildInfoRow('Compensatory Days:', '${student.compensatoryDays} days'),
-                    _buildInfoRow('Effective End Date:', DateFormat.yMMMd().format(student.effectiveMessEndDate), isEmphasized: true),
-                    _buildInfoRow('Days Remaining:', '${student.daysRemaining} days', isEmphasized: true),
-                  ]),
-                  SizedBox(height: 16),
-                  _buildDetailCard(context, title: 'Payment (Current Cycle)', icon: Icons.monetization_on_outlined, children: [
-                    _buildInfoRow('Standard Monthly Fee:', '₹${STANDARD_MONTHLY_FEE.toStringAsFixed(2)}'),
-                    _buildInfoRow('Amount Paid this Cycle:', '₹${amountPaidForCurrentCycle.toStringAsFixed(2)}', isEmphasized: true),
-                    _buildInfoRow('Remaining Amount:', '₹${remainingAmount.toStringAsFixed(2)}', isEmphasized: remainingAmount > 0),
-                    SizedBox(height: 10),
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Text('Overall Cycle Status:', style: Theme.of(context).textTheme.titleMedium),
-                      Chip( // This chip reflects the manually set currentCyclePaid flag.
-                          label: Text(student.currentCyclePaid ? 'Marked PAID' : 'Marked NOT PAID'),
-                          backgroundColor: student.currentCyclePaid ? Colors.green.shade100 : Colors.red.shade100,
-                          labelStyle: TextStyle(color: student.currentCyclePaid ? Colors.green.shade800 : Colors.red.shade800, fontWeight: FontWeight.bold))
-                    ]),
-                    SizedBox(height: 10),
-                    ElevatedButton.icon(
-                        icon: Icon(Icons.payment), // Changed icon
-                        label: Text('Record New Payment'), // Changed label
-                        onPressed: () => _handlePaymentStatusChange(student),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
-                    SizedBox(height: 10),
-                    TextButton(onPressed: () {
-                      if (student.paymentHistory.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No payment history for ${student.name}.'))); return;
-                      }
-                      showDialog(context: context, builder: (ctx) => AlertDialog(
-                          title: Text("Payment History for ${student.name}"),
-                          content: Container(width: double.maxFinite, child: ListView.builder(
-                              shrinkWrap: true, itemCount: student.paymentHistory.length,
-                              itemBuilder: (iCtx, idx) {
-                                final entry = student.paymentHistory.reversed.toList()[idx];
-                                return Card(margin: EdgeInsets.symmetric(vertical: 4), child: ListTile(
-                                    title: Text("Cycle: ${DateFormat.yMMMd().format(entry.cycleStartDate)} - ${DateFormat.yMMMd().format(entry.cycleEndDate)}"),
-                                    subtitle: Text("Paid on: ${DateFormat.yMMMd().format(entry.paymentDate)}\nStatus: ${entry.paid ? 'Paid' : 'Unpaid Entry'} - Amount: ₹${entry.amountPaid.toStringAsFixed(2)}"),
-                                    leading: Icon(entry.paid ? Icons.check_circle : Icons.cancel, color: entry.paid ? Colors.green : Colors.red),
-                                    isThreeLine: true));
-                              })),
-                          actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text("Close"))]));
-                    }, child: Text('View Full Payment History')),
-                  ]),
-                  SizedBox(height: 16),
-                  _buildDetailCard(context, title: 'Attendance', icon: Icons.fact_check_outlined, children: [
-                    // ... (Attendance Log viewing same as before)
-                    TextButton(onPressed: () {
-                      if (student.attendanceLog.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No attendance log for ${student.name}.'))); return;
-                      }
-                      showDialog(context: context, builder: (ctx) => AlertDialog(
-                          title: Text("Attendance Log for ${student.name}"),
-                          content: Container(width: double.maxFinite, child: ListView.builder(
-                              shrinkWrap: true, itemCount: student.attendanceLog.length,
-                              itemBuilder: (iCtx, idx) {
-                                final entry = student.attendanceLog.reversed.toList()[idx];
-                                return Card(margin: EdgeInsets.symmetric(vertical:4), child: ListTile(
-                                  title: Text("${DateFormat.yMMMd().format(entry.date)} - ${entry.mealType.toString().split('.').last.capitalize()}"),
-                                  subtitle: Text("Status: ${entry.status.toString().split('.').last.capitalize()}"),
-                                  leading: Icon(entry.status == AttendanceStatus.present ? Icons.person_search_rounded : Icons.person_off_rounded, color: entry.status == AttendanceStatus.present ? Colors.green : Colors.orange),
-                                ));
-                              }
-                          )),
-                          actions: [TextButton(onPressed: ()=> Navigator.of(ctx).pop(), child: Text("Close"))]
-                      ));
-                    }, child: Text('View Attendance Log')),
-                  ]),
-                  SizedBox(height: 16),
-                  _buildDetailCard(context, title: 'Manage Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
-                    // ... (Compensatory days same as before)
-                    ElevatedButton.icon(icon: Icon(Icons.add_circle_outline), label: Text('Add Compensatory Days'), onPressed: () => _addCompensatoryDaysDialog(student)),
-                    if (student.compensatoryDays > 0) Padding(padding: const EdgeInsets.only(top: 8.0), child: Text('Current total: ${student.compensatoryDays} days added.', style: TextStyle(fontStyle: FontStyle.italic)))
-                  ]),
-                  SizedBox(height: 24),
-                  ElevatedButton.icon(
-                      icon: Icon(Icons.autorenew), label: Text('Renew Mess Cycle'), onPressed: () => _renewMessCycle(student),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 12))),
-                ],
+        return StreamBuilder<Student?>(
+          stream: widget.firestoreService.getStudentStream(widget.studentId),
+          builder: (context, studentSnapshot) {
+            // ... (loading/error for student)
+            if (studentSnapshot.connectionState == ConnectionState.waiting) {
+              return Scaffold(appBar: AppBar(title: Text("Loading Student...")), body: Center(child: CircularProgressIndicator()));
+            }
+            if (studentSnapshot.hasError) {
+              return Scaffold(appBar: AppBar(title: Text("Error")), body: Center(child: Text('Error: ${studentSnapshot.error}')));
+            }
+            if (!studentSnapshot.hasData || studentSnapshot.data == null) {
+              return Scaffold(appBar: AppBar(title: Text("Not Found")), body: Center(child: Text('Student not found.')));
+            }
+
+            final student = studentSnapshot.data!;
+            final List<MonthlyDueItem> monthlyDues = _calculateMonthlyDuesWithPaymentAllocation(student, standardMonthlyFee, DateTime.now());
+            final double totalRemainingAmount = monthlyDues.fold(0.0, (sum, item) => sum + item.remainingForMonth);
+
+            return WillPopScope(
+              onWillPop: () async { Navigator.pop(context, true); return true; },
+              child: Scaffold(
+                appBar: AppBar(
+                  title: Text(student.name),
+                  actions: [
+                    IconButton(icon: Icon(Icons.delete_outline, color: Colors.redAccent[100]), tooltip: 'Delete Student', onPressed: () => _showDeleteConfirmationDialog(student)),
+                  ],
+                ),
+                body: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ListView(
+                    children: <Widget>[
+                      _buildDetailCard(context, title: 'Student Information', icon: Icons.person_pin_circle_outlined, children: [
+                        _buildInfoRow('Name:', student.name),
+                        _buildInfoRow('Contact (ID):', student.contactNumber),
+                      ]),
+                      SizedBox(height: 16),
+                      _buildDetailCard(context, title: 'Mess Service Information', icon: Icons.calendar_today_outlined, children: [
+                        _buildInfoRow('Service Start Date:', DateFormat.yMMMd().format(student.messStartDate)),
+                        _buildInfoRow('Compensatory Days:', '${student.compensatoryDays} days'),
+                        _buildInfoRow('Effective Service End Date:', DateFormat.yMMMd().format(student.effectiveMessEndDate), isEmphasized: true),
+                      ]),
+                      SizedBox(height: 16),
+                      _buildDetailCard(context, title: 'Payment Overview', icon: Icons.monetization_on_outlined, children: [
+                        _buildInfoRow('Standard Monthly Fee:', '₹${standardMonthlyFee.toStringAsFixed(2)}'),
+                        _buildInfoRow('Total Remaining Dues:', '₹${totalRemainingAmount.toStringAsFixed(2)}', isEmphasized: totalRemainingAmount > 0),
+                        SizedBox(height: 10),
+                        ElevatedButton.icon(
+                            icon: Icon(Icons.payment),
+                            label: Text('Record New Payment'),
+                            onPressed: () => _handlePaymentStatusChange(student, monthlyDues),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
+                        SizedBox(height: 10),
+                        Text("Monthly Breakdown:", style: Theme.of(context).textTheme.titleMedium),
+                        if (monthlyDues.isEmpty) Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: Text("No billing periods generated yet or student not active.", style: TextStyle(fontStyle: FontStyle.italic)),
+                        ) else
+                          ...monthlyDues.map((dueItem) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("${dueItem.monthYearDisplay}: ", style: TextStyle(fontWeight: FontWeight.w500)),
+                                Flexible(
+                                  child: Text(
+                                    "Due: ₹${dueItem.feeDueForMonth.toStringAsFixed(0)}, Paid: ₹${dueItem.amountPaidForMonth.toStringAsFixed(0)}, Rem: ₹${dueItem.remainingForMonth.toStringAsFixed(0)} (${dueItem.status})",
+                                    style: TextStyle(color: dueItem.status == "Paid" ? Colors.green : (dueItem.status == "Partially Paid" ? Colors.orange.shade700 : Colors.red.shade700)),
+                                    textAlign: TextAlign.end,
+                                  ),
+                                )
+                              ],
+                            ),
+                          )).toList(),
+                        SizedBox(height: 10),
+                        TextButton(onPressed: () {
+                          if (student.paymentHistory.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No payment history for ${student.name}.'))); return;
+                          }
+                          showDialog(context: context, builder: (ctx) => AlertDialog(
+                              title: Text("Detailed Payment Entries for ${student.name}"),
+                              content: Container(width: double.maxFinite, child: ListView.builder(
+                                  shrinkWrap: true, itemCount: student.paymentHistory.length,
+                                  itemBuilder: (iCtx, idx) {
+                                    final entry = student.paymentHistory.reversed.toList()[idx];
+                                    return Card(margin: EdgeInsets.symmetric(vertical: 4), child: ListTile(
+                                      title: Text("Paid on: ${DateFormat.yMMMd().format(entry.paymentDate)} - Amount: ₹${entry.amountPaid.toStringAsFixed(2)}"),
+                                      subtitle: Text("For Month Starting: ${DateFormat.yMMMd().format(entry.cycleStartDate)}"),
+                                      leading: Icon(entry.paid ? Icons.check_circle : Icons.history_toggle_off, color: entry.paid ? Colors.green : Colors.blueGrey),
+                                      isThreeLine: false,
+                                    ));
+                                  })),
+                              actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text("Close"))]));
+                        }, child: Text('View All Payment Entries')),
+                      ]),
+                      SizedBox(height: 16),
+                      _buildDetailCard(context, title: 'Attendance', icon: Icons.fact_check_outlined, children: [
+                        TextButton(
+                            onPressed: () => _showAttendanceLogDialog(student),
+                            child: Text('View Attendance Calendar')
+                        ),
+                      ]),
+                      SizedBox(height: 16),
+                      _buildDetailCard(context, title: 'Manage Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
+                        ElevatedButton.icon(icon: Icon(Icons.add_circle_outline), label: Text('Add Compensatory Days'), onPressed: () => _addCompensatoryDaysDialog(student)),
+                        if (student.compensatoryDays > 0) Padding(padding: const EdgeInsets.only(top: 8.0), child: Text('Current total: ${student.compensatoryDays} days added.', style: TextStyle(fontStyle: FontStyle.italic)))
+                      ]),
+                      SizedBox(height: 24),
+                      ElevatedButton.icon(
+                          icon: Icon(Icons.event_repeat),
+                          label: Text('Start New Service Period'), // Updated Label
+                          onPressed: () => _startNewServicePeriod(student), // Updated method name & parameters
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 12))),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -400,8 +661,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 15, color: Colors.grey[700])),
-          Text(value, style: TextStyle(fontSize: 15, fontWeight: isEmphasized ? FontWeight.bold : FontWeight.normal, color: isEmphasized ? Colors.teal[700] : Colors.black87)),
+          Flexible(child: Text(label, style: TextStyle(fontSize: 15, color: Colors.grey[700]))),
+          SizedBox(width: 10),
+          Flexible(child: Text(value, textAlign: TextAlign.end, style: TextStyle(fontSize: 15, fontWeight: isEmphasized ? FontWeight.bold : FontWeight.normal, color: isEmphasized ? Colors.teal[700] : Colors.black87))),
         ],
       ),
     );

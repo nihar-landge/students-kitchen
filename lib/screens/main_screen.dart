@@ -1,11 +1,9 @@
 // lib/screens/main_screen.dart
 import 'package:flutter/material.dart';
+// No direct need for intl here, child screens will import if necessary
 
-// Models and Services
-import '../models/student_model.dart'; // For Student type
-import '../services/firestore_service.dart';
-
-// Screen imports
+import '../models/student_model.dart'; // For Student type hint
+import '../services/firestore_service.dart'; // For FirestoreService
 import 'dashboard_screen.dart';
 import 'students_screen.dart';
 import 'add_student_screen.dart';
@@ -13,7 +11,6 @@ import 'student_detail_screen.dart';
 import 'attendance_screen.dart';
 import 'payments_screen.dart';
 import 'settings_screen.dart';
-
 
 class MainScreen extends StatefulWidget {
   @override
@@ -23,6 +20,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   final FirestoreService _firestoreService = FirestoreService();
+  String? _initialPaymentsFilter;
 
   void _navigateToAddStudent(BuildContext navContext) async {
     await Navigator.push(
@@ -46,17 +44,39 @@ class _MainScreenState extends State<MainScreen> {
     setState(() { _selectedIndex = 1; });
   }
 
-  late final List<Widget> _widgetOptions;
+  void _navigateToPaymentsScreenFiltered() {
+    setState(() {
+      _initialPaymentsFilter = "Dues > 0";
+      _selectedIndex = 3;
+    });
+    // Rebuild options after setting filter, before navigating via index
+    _buildWidgetOptions();
+  }
+
+  late List<Widget> _widgetOptions;
 
   @override
   void initState() {
     super.initState();
+    _buildWidgetOptions();
+  }
+
+  @override
+  void didUpdateWidget(MainScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _buildWidgetOptions();
+  }
+
+
+  void _buildWidgetOptions() {
     _widgetOptions = <Widget>[
-      DashboardScreen(
+      DashboardScreen( // This is the instantiation in question
         firestoreService: _firestoreService,
         onNavigateToAttendance: _navigateToAttendanceScreen,
-        onNavigateToStudents: _navigateToStudentsScreenTab,
-        onViewStudentDetails: (student) => _navigateToStudentDetail(context, student),
+        onNavigateToStudentsScreen: _navigateToStudentsScreenTab,
+        onNavigateToPaymentsScreenFiltered: _navigateToPaymentsScreenFiltered,
+        onNavigateToAddStudent: () => _navigateToAddStudent(context),
+        onViewStudentDetails: (student) => _navigateToStudentDetail(context, student), // Parameter is provided
       ),
       StudentsScreen(
         firestoreService: _firestoreService,
@@ -64,14 +84,24 @@ class _MainScreenState extends State<MainScreen> {
         onViewStudent: (student) => _navigateToStudentDetail(context, student),
       ),
       AttendanceScreen(firestoreService: _firestoreService),
-      PaymentsScreen(firestoreService: _firestoreService, onViewStudent: (student) => _navigateToStudentDetail(context, student)),
+      PaymentsScreen(
+        key: ValueKey(_initialPaymentsFilter),
+        firestoreService: _firestoreService,
+        onViewStudent: (student) => _navigateToStudentDetail(context, student),
+        initialFilterOption: _initialPaymentsFilter,
+      ),
       SettingsScreen(),
     ];
   }
 
+
   void _onItemTapped(int index) {
     setState(() {
+      if (index != 3) {
+        _initialPaymentsFilter = null;
+      }
       _selectedIndex = index;
+      _buildWidgetOptions();
     });
   }
 
