@@ -31,8 +31,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 labelText: 'Search Students by Name (starts with)...',
                 hintText: 'Enter name...',
                 prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
-                filled: true, fillColor: Colors.grey[100],
+                // border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)), // Using theme's default
+                // filled: true, fillColor: Colors.grey[100], // Using theme's default
               ),
               onChanged: (value) {
                 setState(() { _searchTerm = value; });
@@ -57,13 +57,26 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   itemBuilder: (context, index) {
                     final student = studentsToDisplay[index];
                     return Card(
-                      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      // margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Using theme's default
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: student.currentCyclePaid ? Colors.green[100] : Colors.red[100],
-                          child: Icon(student.currentCyclePaid ? Icons.check : Icons.close, color: student.currentCyclePaid ? Colors.green[700] : Colors.red[700]),
+                          backgroundColor: student.currentCyclePaid
+                              ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
+                              : Theme.of(context).colorScheme.error.withOpacity(0.2),
+                          child: Icon(
+                              student.currentCyclePaid ? Icons.check : Icons.close,
+                              color: student.currentCyclePaid
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.error
+                          ),
                         ),
-                        title: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
+                        title: Hero( // Wrap student name with Hero
+                          tag: 'student_name_${student.id}',
+                          child: Material( // Material widget helps with text hero animations
+                            type: MaterialType.transparency,
+                            child: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
+                          ),
+                        ),
                         subtitle: Text('Contact: ${student.contactNumber}\nEnds: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)} (Rem: ${student.daysRemaining} days)'),
                         trailing: Icon(Icons.arrow_forward_ios, size: 16),
                         isThreeLine: true,
@@ -80,7 +93,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: widget.onAddStudent,
         icon: Icon(Icons.add), label: Text('Add Student'),
-        backgroundColor: Colors.teal, foregroundColor: Colors.white,
+        // backgroundColor: Colors.teal, // Uses theme's FAB color
+        // foregroundColor: Colors.white,
       ),
     );
   }

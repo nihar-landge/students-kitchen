@@ -17,7 +17,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
   String _studentName = '';
   String _contactNumber = '';
   DateTime _messStartDate = DateTime.now();
-  bool _initialPaymentPaid = false;
+  bool _initialPaymentPaid = false; // This is the state variable
   final _initialAmountController = TextEditingController();
 
   Future<void> _selectStartDate(BuildContext context) async {
@@ -53,15 +53,27 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               backgroundColor: Colors.red));
           return;
         }
+        DateTime firstPeriodEndDate = DateTime(_messStartDate.year, _messStartDate.month + 1, 0);
+        if (firstPeriodEndDate.isAfter(_messStartDate.add(Duration(days:29)))){
+          // This logic was for potential proration, can be simplified if always full fee for first period
+        }
+
         initialPaymentHistory.add(PaymentHistoryEntry(
-            paymentDate: DateTime.now(), cycleStartDate: _messStartDate,
-            cycleEndDate: _messStartDate.add(Duration(days: 30)),
-            paid: true, amountPaid: initialAmount));
+            paymentDate: DateTime.now(),
+            cycleStartDate: _messStartDate,
+            cycleEndDate: firstPeriodEndDate,
+            paid: true,
+            amountPaid: initialAmount
+        ));
       }
 
       final newStudent = Student(
-          id: _contactNumber, name: _studentName, messStartDate: _messStartDate,
-          currentCyclePaid: _initialPaymentPaid, paymentHistory: initialPaymentHistory,
+          id: _contactNumber,
+          name: _studentName,
+          messStartDate: _messStartDate,
+          originalServiceStartDate: _messStartDate,
+          currentCyclePaid: initialAmount > 0 && _initialPaymentPaid, // Corrected: Use _initialPaymentPaid
+          paymentHistory: initialPaymentHistory,
           attendanceLog: []);
 
       try {
@@ -113,7 +125,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
               ]),
               SizedBox(height: 16),
               SwitchListTile(
-                  title: Text('Initial Payment Paid for First 30 Days?'), value: _initialPaymentPaid,
+                  title: Text('Initial Payment Paid for First Service Period?'), value: _initialPaymentPaid,
                   onChanged: (v) => setState(() => _initialPaymentPaid = v),
                   secondary: Icon(_initialPaymentPaid ? Icons.attach_money : Icons.money_off), activeColor: Colors.teal),
               if (_initialPaymentPaid)

@@ -2,8 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/student_model.dart';
-import '../services/firestore_service.dart';
+import '../models/student_model.dart'; // Ensure this path is correct
+import '../services/firestore_service.dart'; // Ensure this path is correct
+// import '../utils/string_extensions.dart'; // If you use .capitalize()
 
 class AttendanceScreen extends StatefulWidget {
   final FirestoreService firestoreService;
@@ -24,8 +25,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _sortAbsenteesTop = false;
   int _absentCount = 0;
 
-  bool _isSearching = false; // To toggle search bar visibility
+  bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -33,8 +35,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _loadActiveStudentsAndInitializeAttendance();
     _searchController.addListener(() {
       if (_searchController.text != _searchTerm) {
-        _searchTerm = _searchController.text;
-        _filterAndSortDisplayedStudents();
+        setStateIfMounted(() {
+          _searchTerm = _searchController.text;
+          _filterAndSortDisplayedStudents();
+        });
       }
     });
   }
@@ -42,6 +46,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -55,8 +60,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       List<Student> allStudents = await widget.firestoreService.getStudentsStream().first;
 
       _allActiveStudentsForDate = allStudents.where((s) {
-        return s.messStartDate.isBefore(_selectedDate.add(Duration(days: 1))) &&
-            s.effectiveMessEndDate.isAfter(_selectedDate.subtract(Duration(microseconds: 1)));
+        // Ensure student's service period overlaps with the selected date
+        DateTime serviceStartDay = DateTime(s.messStartDate.year, s.messStartDate.month, s.messStartDate.day);
+        DateTime serviceEndDay = DateTime(s.effectiveMessEndDate.year, s.effectiveMessEndDate.month, s.effectiveMessEndDate.day);
+        DateTime selectedDayOnly = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+
+        return (selectedDayOnly.isAtSameMomentAs(serviceStartDay) || selectedDayOnly.isAfter(serviceStartDay)) &&
+            (selectedDayOnly.isAtSameMomentAs(serviceEndDay) || selectedDayOnly.isBefore(serviceEndDay.add(Duration(days:1))) ); // Add(days:1) to include the end day
       }).toList();
 
       _attendanceStatusMap.clear();
@@ -66,7 +76,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 entry.date.month == _selectedDate.month &&
                 entry.date.day == _selectedDate.day &&
                 entry.mealType == _selectedMealType,
-            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent)
+            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent) // Default to Absent
         );
         _attendanceStatusMap[student.id] = existingEntry.status;
       }
@@ -112,7 +122,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _absentCount = _displayedStudents.where((student) => _attendanceStatusMap[student.id] == AttendanceStatus.absent).length;
   }
 
-
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
         context: context, initialDate: _selectedDate,
@@ -135,6 +144,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     for (var student in _allActiveStudentsForDate) {
       final status = _attendanceStatusMap[student.id];
+      // If a student was filtered out by search but was active, their status might not be in the map
+      // if the map was only populated from _displayedStudents. Ensure it's from _allActiveStudentsForDate.
+      // The current _loadActiveStudentsAndInitializeAttendance populates for _allActiveStudentsForDate, so this should be fine.
       if (status == null) continue;
 
       List<AttendanceEntry> updatedLog = List.from(student.attendanceLog);
@@ -165,17 +177,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildSearchField() {
     return TextField(
+      key: ValueKey('searchField'),
       controller: _searchController,
+      focusNode: _searchFocusNode,
       autofocus: true,
       decoration: InputDecoration(
-        hintText: 'Search by Name or ID...',
+        hintText: 'Search Name or ID...',
         border: InputBorder.none,
-        hintStyle: TextStyle(color: Colors.white70),
+        hintStyle: TextStyle(color: Theme.of(context).appBarTheme.foregroundColor?.withOpacity(0.7)),
       ),
-      style: TextStyle(color: Colors.white, fontSize: 16.0),
-      onChanged: (value) {
-        // Listener on controller handles update
-      },
+      style: TextStyle(color: Theme.of(context).appBarTheme.foregroundColor, fontSize: 16.0),
     );
   }
 
@@ -183,17 +194,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _isSearching ? _buildSearchField() : Text('Mark Attendance'),
+        title: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: child,
+            );
+          },
+          child: _isSearching
+              ? _buildSearchField()
+              : Text('Mark Attendance', key: ValueKey('titleText')),
+        ),
         actions: <Widget>[
           IconButton(
-            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return ScaleTransition(child: child, scale: animation);
+              },
+              child: _isSearching
+                  ? Icon(Icons.close, key: ValueKey('closeIcon'))
+                  : Icon(Icons.search, key: ValueKey('searchIcon')),
+            ),
             onPressed: () {
               setStateIfMounted(() {
                 _isSearching = !_isSearching;
-                if (!_isSearching) {
-                  _searchController.clear(); // Clear search when closing
-                  _searchTerm = ""; // Reset search term
-                  _filterAndSortDisplayedStudents(); // Refresh list
+                if (_isSearching) {
+                  _searchFocusNode.requestFocus();
+                } else {
+                  _searchFocusNode.unfocus();
+                  _searchController.clear();
+                  // _searchTerm is cleared by listener, _filterAndSortDisplayedStudents is called by listener
                 }
               });
             },
@@ -205,28 +237,36 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           : Column(
         children: <Widget>[
           Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Card(elevation: 2, child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: <Widget>[
-                      Text('Date: ${DateFormat.yMMMd().format(_selectedDate)}', style: Theme.of(context).textTheme.titleMedium),
-                      TextButton.icon(icon: Icon(Icons.calendar_month_outlined), label: Text('Change Date'), onPressed: () => _selectDate(context))
-                    ]),
-                    SizedBox(height: 10),
-                    SegmentedButton<MealType>(
-                        segments: const <ButtonSegment<MealType>>[
-                          ButtonSegment<MealType>(value: MealType.morning, label: Text('Morning'), icon: Icon(Icons.wb_sunny_outlined)),
-                          ButtonSegment<MealType>(value: MealType.night, label: Text('Night'), icon: Icon(Icons.nightlight_round_outlined)),
-                        ],
-                        selected: <MealType>{_selectedMealType},
-                        onSelectionChanged: (Set<MealType> newSelection) {
-                          setStateIfMounted(() { _selectedMealType = newSelection.first; });
-                          _loadActiveStudentsAndInitializeAttendance();
-                        },
-                        style: SegmentedButton.styleFrom(selectedForegroundColor: Colors.white, selectedBackgroundColor: Colors.teal)),
-                  ])))),
-          // Removed the static search bar from here
+            padding: const EdgeInsets.all(12.0),
+            child: Card(
+                elevation: 2,
+                child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: <Widget>[
+                        Text('Date: ${DateFormat.yMMMd().format(_selectedDate)}', style: Theme.of(context).textTheme.titleMedium),
+                        TextButton.icon(icon: Icon(Icons.calendar_month_outlined), label: Text('Change Date'), onPressed: () => _selectDate(context))
+                      ]),
+                      SizedBox(height: 10),
+                      SegmentedButton<MealType>(
+                          segments: const <ButtonSegment<MealType>>[
+                            ButtonSegment<MealType>(value: MealType.morning, label: Text('Morning'), icon: Icon(Icons.wb_sunny_outlined)),
+                            ButtonSegment<MealType>(value: MealType.night, label: Text('Night'), icon: Icon(Icons.nightlight_round_outlined)),
+                          ],
+                          selected: <MealType>{_selectedMealType},
+                          onSelectionChanged: (Set<MealType> newSelection) {
+                            setStateIfMounted(() { _selectedMealType = newSelection.first; });
+                            _loadActiveStudentsAndInitializeAttendance();
+                          },
+                          style: SegmentedButton.styleFrom(
+                            selectedForegroundColor: Theme.of(context).colorScheme.onPrimary,
+                            selectedBackgroundColor: Theme.of(context).colorScheme.primary,
+                            // foregroundColor: Theme.of(context).colorScheme.primary, // Color for unselected items
+                          )
+                      ),
+                    ]))
+            ),
+          ),
           Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
@@ -240,6 +280,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           _sortAbsenteesTop = value;
                           _filterAndSortDisplayedStudents();
                         },
+                        activeColor: Theme.of(context).colorScheme.primary,
                       ),
                       Text("Show Absentees First"),
                     ],
@@ -265,30 +306,47 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 subtitle: Text("ID: ${student.id}"),
                                 trailing: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
                                   ChoiceChip(
-                                      label: Text('Present'), selected: currentStatus == AttendanceStatus.present,
-                                      onSelected: (sel) { if (sel) setStateIfMounted(() {
+                                    label: Text('Present'),
+                                    selected: currentStatus == AttendanceStatus.present,
+                                    selectedColor: Colors.green.shade100,
+                                    labelStyle: TextStyle(color: currentStatus == AttendanceStatus.present ? Colors.green.shade800 : Theme.of(context).textTheme.bodySmall?.color),
+                                    onSelected: (sel) {
+                                      if (sel) setStateIfMounted(() {
                                         _attendanceStatusMap[student.id] = AttendanceStatus.present;
                                         _calculateAbsentCount();
                                         if(_sortAbsenteesTop) _filterAndSortDisplayedStudents();
-                                      }); },
-                                      selectedColor: Colors.greenAccent[100], labelStyle: TextStyle(color: currentStatus == AttendanceStatus.present ? Colors.green[800] : Colors.black54)),
+                                      });
+                                    },
+                                  ),
                                   SizedBox(width: 8),
                                   ChoiceChip(
-                                      label: Text('Absent'), selected: currentStatus == AttendanceStatus.absent,
-                                      onSelected: (sel) { if (sel) setStateIfMounted(() {
+                                    label: Text('Absent'),
+                                    selected: currentStatus == AttendanceStatus.absent,
+                                    selectedColor: Colors.red.shade100,
+                                    labelStyle: TextStyle(color: currentStatus == AttendanceStatus.absent ? Colors.red.shade800 : Theme.of(context).textTheme.bodySmall?.color),
+                                    onSelected: (sel) {
+                                      if (sel) setStateIfMounted(() {
                                         _attendanceStatusMap[student.id] = AttendanceStatus.absent;
                                         _calculateAbsentCount();
                                         if(_sortAbsenteesTop) _filterAndSortDisplayedStudents();
-                                      }); },
-                                      selectedColor: Colors.redAccent[100], labelStyle: TextStyle(color: currentStatus == AttendanceStatus.absent ? Colors.red[800] : Colors.black54)),
+                                      });
+                                    },
+                                  ),
                                 ]))));
                   })),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
-                icon: Icon(Icons.save_alt_rounded), label: Text('Save All Attendance'),
+                icon: Icon(Icons.save_alt_rounded),
+                label: Text('Save All Attendance'),
                 onPressed: _allActiveStudentsForDate.isNotEmpty ? _saveAttendance : null,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white, minimumSize: Size(double.infinity, 50), textStyle: TextStyle(fontSize: 18))),
+                style: ElevatedButton.styleFrom(
+                  // backgroundColor: Theme.of(context).colorScheme.primary, // Uses theme
+                  // foregroundColor: Theme.of(context).colorScheme.onPrimary, // Uses theme
+                    minimumSize: Size(double.infinity, 50),
+                    textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onPrimary)
+                )
+            ),
           ),
         ],
       ),

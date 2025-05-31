@@ -1,9 +1,9 @@
 // lib/screens/main_screen.dart
 import 'package:flutter/material.dart';
-// No direct need for intl here, child screens will import if necessary
+import 'package:animations/animations.dart'; // Import the animations package
 
-import '../models/student_model.dart'; // For Student type hint
-import '../services/firestore_service.dart'; // For FirestoreService
+import '../models/student_model.dart';
+import '../services/firestore_service.dart';
 import 'dashboard_screen.dart';
 import 'students_screen.dart';
 import 'add_student_screen.dart';
@@ -37,23 +37,26 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _navigateToAttendanceScreen() {
-    setState(() { _selectedIndex = 2; });
+    setStateIfMounted(() { _selectedIndex = 2; });
   }
 
   void _navigateToStudentsScreenTab() {
-    setState(() { _selectedIndex = 1; });
+    setStateIfMounted(() { _selectedIndex = 1; });
   }
 
   void _navigateToPaymentsScreenFiltered() {
-    setState(() {
+    setStateIfMounted(() {
       _initialPaymentsFilter = "Dues > 0";
       _selectedIndex = 3;
     });
-    // Rebuild options after setting filter, before navigating via index
-    _buildWidgetOptions();
+    _buildWidgetOptions(); // Rebuild options to pass updated filter
   }
 
   late List<Widget> _widgetOptions;
+
+  void setStateIfMounted(f) { // Helper to avoid calling setState on disposed widget
+    if (mounted) setState(f);
+  }
 
   @override
   void initState() {
@@ -67,16 +70,15 @@ class _MainScreenState extends State<MainScreen> {
     _buildWidgetOptions();
   }
 
-
   void _buildWidgetOptions() {
     _widgetOptions = <Widget>[
-      DashboardScreen( // This is the instantiation in question
+      DashboardScreen(
         firestoreService: _firestoreService,
         onNavigateToAttendance: _navigateToAttendanceScreen,
         onNavigateToStudentsScreen: _navigateToStudentsScreenTab,
         onNavigateToPaymentsScreenFiltered: _navigateToPaymentsScreenFiltered,
         onNavigateToAddStudent: () => _navigateToAddStudent(context),
-        onViewStudentDetails: (student) => _navigateToStudentDetail(context, student), // Parameter is provided
+        onViewStudentDetails: (student) => _navigateToStudentDetail(context, student),
       ),
       StudentsScreen(
         firestoreService: _firestoreService,
@@ -85,7 +87,7 @@ class _MainScreenState extends State<MainScreen> {
       ),
       AttendanceScreen(firestoreService: _firestoreService),
       PaymentsScreen(
-        key: ValueKey(_initialPaymentsFilter),
+        key: ValueKey(_initialPaymentsFilter ?? 'default_payments_key'),
         firestoreService: _firestoreService,
         onViewStudent: (student) => _navigateToStudentDetail(context, student),
         initialFilterOption: _initialPaymentsFilter,
@@ -94,9 +96,8 @@ class _MainScreenState extends State<MainScreen> {
     ];
   }
 
-
   void _onItemTapped(int index) {
-    setState(() {
+    setStateIfMounted(() {
       if (index != 3) {
         _initialPaymentsFilter = null;
       }
@@ -108,8 +109,20 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: _widgetOptions.elementAt(_selectedIndex),
+      body: PageTransitionSwitcher( // Wrap the body with PageTransitionSwitcher
+        duration: const Duration(milliseconds: 450), // Animation duration
+        transitionBuilder: (Widget child, Animation<double> primaryAnimation, Animation<double> secondaryAnimation) {
+          return SharedAxisTransition( // Use SharedAxisTransition
+            animation: primaryAnimation,
+            secondaryAnimation: secondaryAnimation,
+            transitionType: SharedAxisTransitionType.horizontal, // Or .vertical, .scaled
+            child: child,
+          );
+        },
+        child: KeyedSubtree( // Important: Use KeyedSubtree with a unique key for each screen
+          key: ValueKey<int>(_selectedIndex),
+          child: _widgetOptions.elementAt(_selectedIndex),
+        ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
@@ -120,7 +133,7 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings), label: 'Settings'),
         ],
         currentIndex: _selectedIndex,
-        selectedItemColor: Colors.teal[800],
+        selectedItemColor: Theme.of(context).colorScheme.primary, // Use theme color
         unselectedItemColor: Colors.grey[600],
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
