@@ -670,7 +670,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                         SizedBox(height: 16),
 
                         if (isOwner && !student.isArchived) // Only show if not archived
-                          _buildDetailCard(context, title: 'Manage Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
+                          _buildDetailCard(context, title: 'Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
                             ElevatedButton.icon(
                               icon: Icon(Icons.add_circle_outline),
                               label: Flexible(child: Text('Add Compensatory Days', overflow: TextOverflow.ellipsis)),

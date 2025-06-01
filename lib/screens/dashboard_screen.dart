@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/student_model.dart';
-import '../models/user_model.dart'; // Import UserRole
+import '../models/user_model.dart';
 import '../services/firestore_service.dart';
+import '../models/app_settings_model.dart';
+import '../utils/payment_manager.dart';
 
 class DashboardScreen extends StatelessWidget {
   final FirestoreService firestoreService;
@@ -36,71 +38,141 @@ class DashboardScreen extends StatelessWidget {
         elevation: 0,
       ),
       body: StreamBuilder<List<Student>>(
-        stream: firestoreService.getStudentsStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+        // The stream now defaults to active students from FirestoreService
+        stream: firestoreService.getStudentsStream(archiveStatusFilter: StudentArchiveStatusFilter.active),
+        builder: (context, studentSnapshot) {
+          if (studentSnapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+          if (studentSnapshot.hasError) {
+            return Center(child: Text('Error loading students: ${studentSnapshot.error}'));
           }
-          final students = snapshot.data ?? [];
-          return _buildDashboardContent(context, students);
+          final students = studentSnapshot.data ?? [];
+
+          // Add FutureBuilder for AppSettings here
+          return FutureBuilder<AppSettings>(
+            future: firestoreService.getAppSettingsStream().first, // Fetch settings once
+            builder: (context, appSettingsSnapshot) {
+              if (appSettingsSnapshot.connectionState == ConnectionState.waiting && !appSettingsSnapshot.hasData) {
+                return Center(child: CircularProgressIndicator(key: ValueKey("settings_loader_for_dashboard")));
+              }
+              if (appSettingsSnapshot.hasError) {
+                return Center(child: Text('Error loading app settings: ${appSettingsSnapshot.error}'));
+              }
+
+              final standardMonthlyFee = appSettingsSnapshot.data?.standardMonthlyFee ?? 2000.0; // Default if not found
+
+              // Pass students and standardMonthlyFee to _buildDashboardContent
+              return _buildDashboardContent(context, students, standardMonthlyFee);
+            },
+          );
         },
       ),
     );
   }
 
-  Widget _buildDashboardContent(BuildContext context, List<Student> students) {
+  Widget _buildDashboardContent(BuildContext context, List<Student> students, double standardMonthlyFee) {
+    // 'students' list already contains only active, non-archived students due to the stream filter.
     int activeStudentsCount = students.where((s) => s.effectiveMessEndDate.isAfter(DateTime.now())).length;
-    int paymentsDueCount = 0;
+
+    // New calculation for paymentsDueCount using PaymentManager
+    int newPaymentsDueCount = 0;
     if (userRole == UserRole.owner) {
-      paymentsDueCount = students.where((s) {
-        bool nearingEndUnpaid = s.effectiveMessEndDate.isAfter(DateTime.now()) &&
-            s.effectiveMessEndDate.difference(DateTime.now()).inDays <= 7 &&
-            !s.currentCyclePaid;
-        bool endedUnpaid = s.effectiveMessEndDate.isBefore(DateTime.now()) && !s.currentCyclePaid;
-        return (nearingEndUnpaid || endedUnpaid) || (s.effectiveMessEndDate.isAfter(DateTime.now()) && !s.currentCyclePaid);
-      }).length;
+      for (var student in students) { // Iterate over already filtered active students
+        List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
+            student,
+            standardMonthlyFee,
+            DateTime.now() // Calculate dues up to the current date
+        );
+        double totalRemaining = duesList.fold(0.0, (sum, item) => sum + item.remainingForPeriod);
+        if (totalRemaining > 0) {
+          newPaymentsDueCount++;
+        }
+      }
     }
 
+    // --- Time-aware Attendance Logic ---
+    DateTime now = DateTime.now();
+    MealType currentMealType;
+    String mealTypeLabel;
 
-    DateTime today = DateTime.now();
+    // Determine current meal type based on time (e.g., cutoff at 3 PM / 15:00 hours)
+    // You can adjust this cutoff time as needed.
+    // For example, morning meal cutoff could be 3 PM (15:00)
+    if (now.hour < 15) { // Before 3 PM is considered morning meal time
+      currentMealType = MealType.morning;
+      mealTypeLabel = "Morning";
+    } else { // 3 PM or later is considered night meal time
+      currentMealType = MealType.night;
+      mealTypeLabel = "Night";
+    }
+
+    DateTime todayForAttendance = DateTime(now.year, now.month, now.day); // Normalized today for precise comparison
     int presentTodayCount = 0;
     int totalActiveTodayForAttendance = 0;
 
-    for (var student in students) {
+    for (var student in students) { // Iterate over already filtered active students
       DateTime serviceStartDateNormalized = DateTime(student.messStartDate.year, student.messStartDate.month, student.messStartDate.day);
       DateTime serviceEndDateNormalized = DateTime(student.effectiveMessEndDate.year, student.effectiveMessEndDate.month, student.effectiveMessEndDate.day);
-      DateTime todayNormalized = DateTime(today.year, today.month, today.day);
 
-      bool isActiveToday = (todayNormalized.isAtSameMomentAs(serviceStartDateNormalized) || todayNormalized.isAfter(serviceStartDateNormalized)) &&
-          (todayNormalized.isAtSameMomentAs(serviceEndDateNormalized) || todayNormalized.isBefore(serviceEndDateNormalized));
+      // Check if student is active today (service period includes today)
+      // Ensure comparison is date-only by normalizing 'todayForAttendance'
+      bool isActiveToday = !todayForAttendance.isBefore(serviceStartDateNormalized) &&
+          !todayForAttendance.isAfter(serviceEndDateNormalized);
+
 
       if (isActiveToday) {
         totalActiveTodayForAttendance++;
-        bool wasPresent = student.attendanceLog.any((entry) {
+        // Check if student was present for the *current* meal type today
+        bool wasPresentForCurrentMeal = student.attendanceLog.any((entry) {
           DateTime entryDateNormalized = DateTime(entry.date.year, entry.date.month, entry.date.day);
-          return entryDateNormalized.isAtSameMomentAs(todayNormalized) &&
-              entry.status == AttendanceStatus.present;
+          return entryDateNormalized.isAtSameMomentAs(todayForAttendance) &&
+              entry.status == AttendanceStatus.present &&
+              entry.mealType == currentMealType; // Filter by currentMealType
         });
-        if (wasPresent) {
+        if (wasPresentForCurrentMeal) {
           presentTodayCount++;
         }
       }
     }
     String attendanceTodayText = "$presentTodayCount/$totalActiveTodayForAttendance";
+    // --- End of Time-aware Attendance Logic ---
 
+    // Updated logic for "Upcoming Cycle Endings" notifications
+    List<Map<String, dynamic>> studentNotificationsData = [];
+    for (var student in students) { // Iterate over already filtered active students
+      final diffDays = student.effectiveMessEndDate.difference(DateTime.now()).inDays;
+      List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
+          student, standardMonthlyFee, DateTime.now());
+      double totalRemaining = duesList.fold(0.0, (sum, item) => sum + item.remainingForPeriod);
+      bool isUnpaid = totalRemaining > 0;
 
-    List<Student> monthEndStudentNotifications = students.where((s) {
-      final diff = s.effectiveMessEndDate.difference(DateTime.now()).inDays;
+      bool shouldDisplay = false;
       if (userRole == UserRole.owner) {
-        return (diff >= 0 && diff <= 7) || (diff < 0 && !s.currentCyclePaid);
-      } else {
-        return (diff >= 0 && diff <= 7);
+        // Display if nearing end (0-7 days), OR if service ended (diffDays < 0) and still unpaid
+        if ((diffDays >= 0 && diffDays <= 7) || (diffDays < 0 && isUnpaid)) {
+          shouldDisplay = true;
+        }
+      } else { // Guest
+        if (diffDays >= 0 && diffDays <= 7) { // Guests only see nearing end
+          shouldDisplay = true;
+        }
       }
-    }).toList();
-    monthEndStudentNotifications.sort((a,b) => a.effectiveMessEndDate.compareTo(b.effectiveMessEndDate));
+      if (shouldDisplay) {
+        studentNotificationsData.add({
+          'student': student,
+          'isUnpaid': isUnpaid,
+          'totalRemaining': totalRemaining,
+          'diffDays': diffDays,
+        });
+      }
+    }
+    studentNotificationsData.sort((a, b) {
+      Student studentA = a['student'] as Student;
+      Student studentB = b['student'] as Student;
+      return studentA.effectiveMessEndDate.compareTo(studentB.effectiveMessEndDate);
+    });
+
 
     return Container(
       color: Colors.grey[100],
@@ -115,21 +187,26 @@ class DashboardScreen extends StatelessWidget {
                 bool isNarrowScreen = constraints.maxWidth < 550;
                 List<Widget> firstRowWidgets = [];
                 List<Widget> secondRowWidgets = [];
+                String attendanceCardTitle = 'Attendance ($mealTypeLabel)'; // Dynamic title for the attendance card
 
                 firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Active Students', activeStudentsCount.toString(), Icons.person_outline, Theme.of(context).primaryColor, onTap: onNavigateToStudentsScreen)));
                 firstRowWidgets.add(SizedBox(width: 10));
 
                 if (userRole == UserRole.owner) {
-                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Payment Due', paymentsDueCount.toString(), Icons.credit_card_off_outlined, Theme.of(context).primaryColor, onTap: onNavigateToPaymentsScreenFiltered)));
+                  // Use newPaymentsDueCount here
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Payment Due', newPaymentsDueCount.toString(), Icons.credit_card_off_outlined, Theme.of(context).primaryColor, onTap: onNavigateToPaymentsScreenFiltered)));
 
                   if (!isNarrowScreen) {
                     firstRowWidgets.add(SizedBox(width: 10));
-                    firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
+                    // Use attendanceCardTitle here for Owner
+                    firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
                   } else {
-                    secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance, isFullWidth: true)));
+                    // Use attendanceCardTitle here for Owner (narrow screen)
+                    secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance, isFullWidth: true)));
                   }
-                } else {
-                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
+                } else { // Guest role
+                  // Use attendanceCardTitle here for Guest
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
                 }
 
                 List<Widget> layoutChildren = [Row(children: firstRowWidgets)];
@@ -181,9 +258,9 @@ class DashboardScreen extends StatelessWidget {
             ),
           if (userRole == UserRole.owner) SizedBox(height: 30),
 
-          Text('Upcoming Cycle Endings:', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: Colors.red.shade700)),
+          Text('Upcoming Cycle Endings / Dues:', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: Colors.red.shade700)),
           SizedBox(height: 10),
-          monthEndStudentNotifications.isEmpty
+          studentNotificationsData.isEmpty
               ? Card(
             elevation: 1,
             child: Padding(
@@ -192,20 +269,36 @@ class DashboardScreen extends StatelessWidget {
             ),
           )
               : Column(
-            children: monthEndStudentNotifications.map<Widget>((student) {
+            children: studentNotificationsData.map<Widget>((data) {
+              final student = data['student'] as Student;
+              final isUnpaid = data['isUnpaid'] as bool;
+              final totalRemaining = data['totalRemaining'] as double;
+              final diffDays = data['diffDays'] as int;
+
               String subtitleText = 'Mess ends on: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)}';
+              Color cardColor = Colors.pink.shade50; // Default for nearing end
+
               if (userRole == UserRole.owner) {
-                subtitleText += (student.effectiveMessEndDate.isBefore(DateTime.now()) && !student.currentCyclePaid ? ' (Payment Overdue)' :
-                (!student.currentCyclePaid ? ' (Payment Pending)' : ' (Paid)'));
+                if (diffDays < 0 && isUnpaid) { // Service ended and unpaid
+                  subtitleText += ' (Payment Overdue: ₹${totalRemaining.toStringAsFixed(0)})';
+                  cardColor = Colors.red.shade100; // More prominent for overdue
+                } else if (isUnpaid) { // Active or nearing end, and unpaid
+                  subtitleText += ' (Payment Pending: ₹${totalRemaining.toStringAsFixed(0)})';
+                  cardColor = Colors.orange.shade100; // Warning for pending
+                } else { // Paid
+                  subtitleText += ' (Paid)';
+                  cardColor = Colors.green.shade50; // Success for paid
+                }
               }
+
               return Card(
                 elevation: 1, margin: EdgeInsets.symmetric(vertical: 5),
-                color: Colors.pink.shade50,
+                color: cardColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 child: ListTile(
                   leading: Icon(
                     Icons.notifications_active_outlined,
-                    color: Colors.red.shade600,
+                    color: isUnpaid ? (diffDays < 0 ? Colors.red.shade700 : Colors.orange.shade700) : Colors.green.shade700,
                   ),
                   title: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
                   subtitle: Text(subtitleText, style: TextStyle(color: Colors.black87)),
@@ -268,8 +361,6 @@ class DashboardScreen extends StatelessWidget {
                 flex: 2, // Value (count) takes up roughly 2 parts of the space
                 child: Align(
                   // Align the text slightly off-center to the right within its allocated space.
-                  // Alignment(0.5, 0.0) means 75% from the left edge of this Expanded widget.
-                  // Alignment.centerRight would be Alignment(1.0, 0.0)
                   alignment: Alignment(0.5, 0.0),
                   child: Text(
                     value,
