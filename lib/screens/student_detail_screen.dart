@@ -158,7 +158,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
 
                     updatedHistory.add(PaymentHistoryEntry(
                         paymentDate: _selectedPaymentDate,
-                        cycleStartDate: _paymentForPeriodStart!,
+                        cycleStartDate: paidForPeriodDetails.periodStartDate,
                         cycleEndDate: paidForPeriodDetails.periodEndDate,
                         paid: true,
                         amountPaid: amount
@@ -493,10 +493,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                               children: [
                                 Text("${dueItem.monthYearDisplay}:", style: TextStyle(fontWeight: FontWeight.w500)),
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8.0, top: 2.0, bottom: 2.0),
-                                  child: Text( // This display aligns with the simplified MonthlyDueItem
-                                    "Period Due: ₹${dueItem.feeDueForPeriod.toStringAsFixed(0)}",
-                                    style: TextStyle(fontSize: 13),
+                                  padding: const EdgeInsets.only(left: 8.0, top: 2.0),
+                                  child: Text(
+                                    "(Period: ${DateFormat.yMMMd().format(dueItem.periodStartDate)} - ${DateFormat.yMMMd().format(dueItem.periodEndDate)})",
+                                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                                   ),
                                 ),
                                 Padding(
