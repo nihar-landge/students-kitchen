@@ -7,7 +7,7 @@ import '../services/firestore_service.dart';
 
 class DashboardScreen extends StatelessWidget {
   final FirestoreService firestoreService;
-  final UserRole userRole; // <<< ADDED userRole parameter
+  final UserRole userRole;
   final VoidCallback onNavigateToAttendance;
   final VoidCallback onNavigateToStudentsScreen;
   final VoidCallback onNavigateToPaymentsScreenFiltered;
@@ -18,13 +18,13 @@ class DashboardScreen extends StatelessWidget {
 
   DashboardScreen({
     required this.firestoreService,
-    required this.userRole, // <<< ADDED to constructor
+    required this.userRole,
     required this.onNavigateToAttendance,
     required this.onNavigateToStudentsScreen,
     required this.onNavigateToPaymentsScreenFiltered,
     required this.onNavigateToAddStudent,
     required this.onViewStudentDetails,
-    Key? key, // <<< ADDED Key
+    Key? key,
   }) : super(key: key);
 
   @override
@@ -67,20 +67,30 @@ class DashboardScreen extends StatelessWidget {
 
     DateTime today = DateTime.now();
     int presentTodayCount = 0;
+    int totalActiveTodayForAttendance = 0;
+
     for (var student in students) {
-      bool isActiveToday = student.messStartDate.isBefore(today.add(Duration(days:1))) &&
-          student.effectiveMessEndDate.isAfter(today.subtract(Duration(microseconds: 1)));
+      DateTime serviceStartDateNormalized = DateTime(student.messStartDate.year, student.messStartDate.month, student.messStartDate.day);
+      DateTime serviceEndDateNormalized = DateTime(student.effectiveMessEndDate.year, student.effectiveMessEndDate.month, student.effectiveMessEndDate.day);
+      DateTime todayNormalized = DateTime(today.year, today.month, today.day);
+
+      bool isActiveToday = (todayNormalized.isAtSameMomentAs(serviceStartDateNormalized) || todayNormalized.isAfter(serviceStartDateNormalized)) &&
+          (todayNormalized.isAtSameMomentAs(serviceEndDateNormalized) || todayNormalized.isBefore(serviceEndDateNormalized));
+
       if (isActiveToday) {
-        bool wasPresent = student.attendanceLog.any((entry) =>
-        entry.date.year == today.year &&
-            entry.date.month == today.month &&
-            entry.date.day == today.day &&
-            entry.status == AttendanceStatus.present);
+        totalActiveTodayForAttendance++;
+        bool wasPresent = student.attendanceLog.any((entry) {
+          DateTime entryDateNormalized = DateTime(entry.date.year, entry.date.month, entry.date.day);
+          return entryDateNormalized.isAtSameMomentAs(todayNormalized) &&
+              entry.status == AttendanceStatus.present;
+        });
         if (wasPresent) {
           presentTodayCount++;
         }
       }
     }
+    String attendanceTodayText = "$presentTodayCount/$totalActiveTodayForAttendance";
+
 
     List<Student> monthEndStudentNotifications = students.where((s) {
       final diff = s.effectiveMessEndDate.difference(DateTime.now()).inDays;
@@ -102,38 +112,33 @@ class DashboardScreen extends StatelessWidget {
 
           LayoutBuilder(
               builder: (context, constraints) {
-                bool isNarrowScreen = constraints.maxWidth < 550; // Adjusted breakpoint slightly
-                List<Widget> summaryCardsRow1 = [];
-                List<Widget> summaryCardsRow2 = [];
+                bool isNarrowScreen = constraints.maxWidth < 550;
+                List<Widget> firstRowWidgets = [];
+                List<Widget> secondRowWidgets = [];
 
-                summaryCardsRow1.add(Expanded(child: _buildSimpleSummaryCard(context, 'Active Students', activeStudentsCount.toString(), Icons.person_outline, Theme.of(context).primaryColor, onTap: onNavigateToStudentsScreen)));
-                summaryCardsRow1.add(SizedBox(width: 10));
-
+                firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Active Students', activeStudentsCount.toString(), Icons.person_outline, Theme.of(context).primaryColor, onTap: onNavigateToStudentsScreen)));
+                firstRowWidgets.add(SizedBox(width: 10));
 
                 if (userRole == UserRole.owner) {
-                  summaryCardsRow1.add(Expanded(child: _buildSimpleSummaryCard(context, 'Payment Due', paymentsDueCount.toString(), Icons.credit_card_off_outlined, Theme.of(context).primaryColor, onTap: onNavigateToPaymentsScreenFiltered)));
-                  summaryCardsRow1.add(SizedBox(width: 10));
-                  summaryCardsRow1.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', "$presentTodayCount Present", Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
-                } else { // Guest
-                  summaryCardsRow1.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', "$presentTodayCount Present", Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
-                }
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Payment Due', paymentsDueCount.toString(), Icons.credit_card_off_outlined, Theme.of(context).primaryColor, onTap: onNavigateToPaymentsScreenFiltered)));
 
-
-                if (isNarrowScreen) {
-                  // For narrow screen, let's try 2 then 1 for owner, and 2 for guest
-                  List<Widget> children = [];
-                  if(userRole == UserRole.owner){
-                    children.add(Row(children: [summaryCardsRow1[0], summaryCardsRow1[1], summaryCardsRow1[2]])); // Active, Spacer, Payment
-                    children.add(SizedBox(height: 10));
-                    children.add(Row(children: [summaryCardsRow1[4]])); // Attendance (index 3 is spacer)
-                  } else { // Guest has 2 cards: Active, Attendance
-                    children.add(Row(children: [summaryCardsRow1[0], summaryCardsRow1[1], summaryCardsRow1[2]])); // Active, Spacer, Attendance
+                  if (!isNarrowScreen) {
+                    firstRowWidgets.add(SizedBox(width: 10));
+                    firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
+                  } else {
+                    secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance, isFullWidth: true)));
                   }
-                  return Column(children: children);
                 } else {
-                  // Wide screen: all in one row
-                  return Row(children: summaryCardsRow1);
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Attendance Today', attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
                 }
+
+                List<Widget> layoutChildren = [Row(children: firstRowWidgets)];
+                if (secondRowWidgets.isNotEmpty) {
+                  layoutChildren.add(SizedBox(height: 10));
+                  layoutChildren.add(Row(children: secondRowWidgets));
+                }
+
+                return Column(children: layoutChildren);
               }
           ),
           SizedBox(height: 30),
@@ -221,8 +226,7 @@ class DashboardScreen extends StatelessWidget {
       String value,
       IconData? icon,
       Color cardColor,
-      {VoidCallback? onTap, bool isFullWidth = false}
-      ) {
+      {VoidCallback? onTap, bool isFullWidth = false}) {
     return Card(
       elevation: 2,
       color: cardColor,
@@ -231,27 +235,51 @@ class DashboardScreen extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 16.0),
+          padding: EdgeInsets.all(12.0),
           width: isFullWidth ? double.infinity : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          constraints: BoxConstraints(minHeight: 100),
+          child: Row(
             children: <Widget>[
-              if (icon != null) ...[
-                Icon(icon, size: 28, color: Colors.white.withOpacity(0.8)),
-                SizedBox(height: 8),
-              ],
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
+              // Left Part: Icon and Title
+              Expanded(
+                flex: 3, // Icon and title take up roughly 3 parts of the space
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    if (icon != null) ...[
+                      Icon(icon, size: 28, color: Colors.white.withOpacity(0.9)),
+                      SizedBox(height: 6),
+                    ],
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
+                  ],
+                ),
               ),
-              SizedBox(height: 4),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
+              SizedBox(width: 8),
+              // Right Part: Value (Count)
+              Expanded(
+                flex: 2, // Value (count) takes up roughly 2 parts of the space
+                child: Align(
+                  // Align the text slightly off-center to the right within its allocated space.
+                  // Alignment(0.5, 0.0) means 75% from the left edge of this Expanded widget.
+                  // Alignment.centerRight would be Alignment(1.0, 0.0)
+                  alignment: Alignment(0.5, 0.0),
+                  child: Text(
+                    value,
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center, // Center text if it wraps (less likely for single digit)
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
             ],
           ),

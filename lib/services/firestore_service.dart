@@ -1,25 +1,26 @@
 // lib/services/firestore_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student_model.dart';
-import '../models/app_settings_model.dart'; // Import AppSettings model
+import '../models/app_settings_model.dart';
+
+// Enum to specify student status for filtering
+enum StudentArchiveStatusFilter { active, archived, all }
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final String _studentsCollection = 'students';
-  final String _settingsCollection = 'settings'; // For app settings
+  final String _settingsCollection = 'settings';
 
-  // --- App Settings Methods ---
   Stream<AppSettings> getAppSettingsStream() {
     return _db
         .collection(_settingsCollection)
-        .doc(APP_SETTINGS_DOC_ID) // Use fixed document ID
+        .doc(APP_SETTINGS_DOC_ID)
         .snapshots()
         .map((snapshot) {
       if (snapshot.exists) {
         return AppSettings.fromSnapshot(snapshot);
       }
-      // Return default settings if document doesn't exist
-      return AppSettings(standardMonthlyFee: 2000.0); // Default fee
+      return AppSettings(standardMonthlyFee: 2000.0);
     });
   }
 
@@ -27,22 +28,38 @@ class FirestoreService {
     return _db
         .collection(_settingsCollection)
         .doc(APP_SETTINGS_DOC_ID)
-        .set({'standardMonthlyFee': newFee}, SetOptions(merge: true)); // Use set with merge to create if not exists or update
+        .set({'standardMonthlyFee': newFee}, SetOptions(merge: true));
   }
 
-  // --- Student Methods (Existing methods remain the same) ---
-  Stream<List<Student>> getStudentsStream({String? nameSearchTerm}) {
+  // Modified to filter by archive status
+  Stream<List<Student>> getStudentsStream({
+    String? nameSearchTerm,
+    StudentArchiveStatusFilter archiveStatusFilter = StudentArchiveStatusFilter.active, // Default to active
+  }) {
     Query query = _db.collection(_studentsCollection);
 
+    // Apply archive filter
+    if (archiveStatusFilter == StudentArchiveStatusFilter.active) {
+      query = query.where('isArchived', isEqualTo: false);
+    } else if (archiveStatusFilter == StudentArchiveStatusFilter.archived) {
+      query = query.where('isArchived', isEqualTo: true);
+    }
+    // For StudentArchiveStatusFilter.all, no 'isArchived' filter is applied
+
+    // Apply name search filter (can be combined with archive filter)
     if (nameSearchTerm != null && nameSearchTerm.isNotEmpty) {
       String lowerSearchTerm = nameSearchTerm.toLowerCase();
       query = query
           .where('name_lowercase', isGreaterThanOrEqualTo: lowerSearchTerm)
-          .where('name_lowercase', isLessThanOrEqualTo: lowerSearchTerm + '\uf8ff')
-          .orderBy('name_lowercase');
+          .where('name_lowercase', isLessThanOrEqualTo: lowerSearchTerm + '\uf8ff');
+      // If name search is active, we usually want to order by name.
+      // Firestore requires the first orderBy to be on the field used in inequality filters.
+      query = query.orderBy('name_lowercase');
     } else {
+      // Default ordering if no search term
       query = query.orderBy('name');
     }
+
 
     return query.snapshots().map((snapshot) {
       try {
@@ -74,6 +91,7 @@ class FirestoreService {
   }
 
   Future<void> addStudent(Student student) {
+    // When adding a new student, isArchived defaults to false in the model
     return _db.collection(_studentsCollection).doc(student.id).set(student.toMap());
   }
 
@@ -104,6 +122,13 @@ class FirestoreService {
       }).toList();
     }
     return _db.collection(_studentsCollection).doc(studentId).update(data);
+  }
+
+  // New method to archive/unarchive a student
+  Future<void> setStudentArchiveStatus(String studentId, bool isArchived) {
+    return _db.collection(_studentsCollection).doc(studentId).update({
+      'isArchived': isArchived,
+    });
   }
 
   Future<void> deleteStudent(String studentId) {

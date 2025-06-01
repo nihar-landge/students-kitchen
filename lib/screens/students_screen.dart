@@ -2,22 +2,25 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/student_model.dart';
-import '../models/user_model.dart'; // Import UserRole
+import '../models/user_model.dart';
 import '../services/firestore_service.dart';
-// Ensure there is NO 'import 'dashboard_screen.dart';' here unless absolutely necessary
+import 'student_detail_screen.dart';
+import 'add_student_screen.dart';
+
 
 class StudentsScreen extends StatefulWidget {
   final FirestoreService firestoreService;
   final UserRole userRole;
-  final VoidCallback onAddStudent;
-  final Function(Student) onViewStudent;
+  // Removed onAddStudent and onViewStudent as they are handled internally or via MainScreen
+  // final VoidCallback onAddStudent;
+  // final Function(Student) onViewStudent;
 
   StudentsScreen({
     required this.firestoreService,
     required this.userRole,
-    required this.onAddStudent,
-    required this.onViewStudent,
-    Key? key, // Added Key
+    // required this.onAddStudent,
+    // required this.onViewStudent,
+    Key? key,
   }) : super(key: key);
 
   @override
@@ -26,6 +29,35 @@ class StudentsScreen extends StatefulWidget {
 
 class _StudentsScreenState extends State<StudentsScreen> {
   String _searchTerm = '';
+
+  void _navigateToAddStudent() {
+    if (widget.userRole == UserRole.owner) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => AddStudentScreen(firestoreService: widget.firestoreService)),
+      ).then((_) {
+        // Optional: refresh list or listen for changes if needed after adding
+        setState(() {});
+      });
+    }
+  }
+
+  void _navigateToStudentDetail(Student student) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StudentDetailScreen(
+          studentId: student.id,
+          firestoreService: widget.firestoreService,
+          userRole: widget.userRole,
+        ),
+      ),
+    ).then((_) {
+      // Optional: refresh list or listen for changes if needed after viewing details
+      setState(() {});
+    });
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -48,15 +80,25 @@ class _StudentsScreenState extends State<StudentsScreen> {
           ),
           Expanded(
             child: StreamBuilder<List<Student>>(
-              stream: widget.firestoreService.getStudentsStream(nameSearchTerm: _searchTerm.isNotEmpty ? _searchTerm : null),
+              // Fetching non-archived students by default
+              stream: widget.firestoreService.getStudentsStream(
+                nameSearchTerm: _searchTerm.isNotEmpty ? _searchTerm : null,
+                archiveStatusFilter: StudentArchiveStatusFilter.active, // Shows isArchived == false
+              ),
               builder: (context, snapshot) {
                 if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-                if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator());
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
 
                 final studentsToDisplay = snapshot.data ?? [];
 
                 if (studentsToDisplay.isEmpty) {
-                  return Center(child: Text(_searchTerm.isNotEmpty ? 'No students found matching "$_searchTerm".' : 'No students added yet.'));
+                  return Center(
+                      child: Text(_searchTerm.isNotEmpty
+                          ? 'No students found matching "$_searchTerm".'
+                          : 'No current students. Add a student or check the archived list in Settings.')
+                  );
                 }
 
                 return ListView.builder(
@@ -65,7 +107,19 @@ class _StudentsScreenState extends State<StudentsScreen> {
                     final student = studentsToDisplay[index];
                     bool displayPaidStatusIcon = widget.userRole == UserRole.owner;
 
+                    // Determine if service has ended for display purposes, even if not archived
+                    bool serviceHasEnded = student.effectiveMessEndDate.isBefore(DateTime.now());
+                    String subtitleText = 'Contact: ${student.contactNumber}\n';
+                    if (serviceHasEnded) {
+                      subtitleText += 'Service Ended: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)}';
+                    } else {
+                      subtitleText += 'Ends: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)} (Rem: ${student.daysRemaining} days)';
+                    }
+
+
                     return Card(
+                      // Optionally, slightly dim students whose service has ended but are not yet archived
+                      color: serviceHasEnded ? Colors.grey[100] : null,
                       child: ListTile(
                         leading: displayPaidStatusIcon ? CircleAvatar(
                           backgroundColor: student.currentCyclePaid
@@ -77,18 +131,18 @@ class _StudentsScreenState extends State<StudentsScreen> {
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(context).colorScheme.error
                           ),
-                        ) : Icon(Icons.person_pin_circle_outlined, color: Theme.of(context).colorScheme.primary), // Generic icon for guest
+                        ) : Icon(Icons.person_pin_circle_outlined, color: Theme.of(context).colorScheme.primary),
                         title: Hero(
-                          tag: 'student_name_${student.id}',
+                          tag: 'student_name_${student.id}', // Ensure unique tags
                           child: Material(
                             type: MaterialType.transparency,
                             child: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
                           ),
                         ),
-                        subtitle: Text('Contact: ${student.contactNumber}\nEnds: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)} (Rem: ${student.daysRemaining} days)'),
+                        subtitle: Text(subtitleText),
                         trailing: Icon(Icons.arrow_forward_ios, size: 16),
                         isThreeLine: true,
-                        onTap: () => widget.onViewStudent(student),
+                        onTap: () => _navigateToStudentDetail(student),
                       ),
                     );
                   },
@@ -100,7 +154,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
       ),
       floatingActionButton: widget.userRole == UserRole.owner
           ? FloatingActionButton.extended(
-        onPressed: widget.onAddStudent,
+        onPressed: _navigateToAddStudent,
         icon: Icon(Icons.add), label: Text('Add Student'),
       )
           : null,
