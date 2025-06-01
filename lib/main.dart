@@ -1,19 +1,26 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:google_fonts/google_fonts.dart';
+// import 'package:google_fonts/google_fonts.dart'; // Can be removed if not used
 
 import 'firebase_options.dart';
-// import 'screens/main_screen.dart'; // We will now import LoginScreen
-import 'screens/login_screen.dart'; // Import the new LoginScreen
+import 'screens/login_screen.dart';
 
-// Student's Kitchen Color Palette
-const Color skPrimaryGreen = Color(0xFF2D9A4B); // Chef Hat Green
-const Color skSecondaryYellow = Color(0xFFFFD600); // Outline Yellow
-const Color logoTextBlack = Color(0xFF000000);    // Text Black (as per your guideline for accent/warning)
-const Color skBackgroundLight = Color(0xFFF4F4F4); // Light Grey Background
-const Color skBackgroundWhite = Color(0xFFFFFFFF); // White Background (e.g., for Cards)
-const Color skDarkText = Color(0xFF333333);       // Charcoal Grey for body text
+// --- New Color Palette ---
+const Color skBasilGreen = Color(0xFF38761D); // A fresh, basil-like green
+const Color skDeepGreen = Color(0xFF2D9A4B);   // Your original primary, still good
+
+// Accent Colors (Warm Tones)
+const Color skAmberYellow = Color(0xFFFFC107); // Warm amber/yellow
+const Color skTomatoRed = Color(0xFFFF6347);   // Tomato red for highlights/errors
+const Color skTerracotta = Color(0xFFE2725B);  // A warmer, earthy red option
+
+// Neutral & Background Colors
+const Color skBackgroundLight = Color(0xFFF7F7F7); // Slightly off-white for background
+const Color skBackgroundWhite = Color(0xFFFFFFFF); // For Cards and surfaces
+const Color skDarkText = Color(0xFF2F2F2F);        // Darker charcoal for better contrast
+const Color skLightText = Color(0xFF6C6C6C);       // Lighter grey for subtitles
+const Color skPureBlack = Color(0xFF000000); // For text that needs to be pure black
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,60 +33,62 @@ Future<void> main() async {
 class MessManagementApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final TextTheme baseTextTheme = Theme.of(context).textTheme;
+    // final TextTheme baseTextTheme = Theme.of(context).textTheme; // Not strictly needed for this correction
+
+    // You can choose which green to use as the main primary color for the theme.
+    // Let's use skBasilGreen as the primary for this example.
+    final Color appPrimaryColor = skBasilGreen;
+    final Color appSecondaryColor = skAmberYellow;
+    final Color appErrorColor = skTomatoRed; // Good choice for error color
 
     return MaterialApp(
       title: 'Student\'s Kitchen Mess',
       theme: ThemeData(
-        primaryColor: skPrimaryGreen,
-        scaffoldBackgroundColor: skBackgroundLight,
+        primaryColor: appPrimaryColor, // Using the chosen primary from new palette
+        scaffoldBackgroundColor: skBackgroundLight, // Using new palette
         colorScheme: ColorScheme(
-          primary: skPrimaryGreen,
-          onPrimary: skBackgroundWhite,
-          secondary: skSecondaryYellow,
-          onSecondary: logoTextBlack,      // Corrected: Used logoTextBlack
-          surface: skBackgroundWhite,
-          onSurface: skDarkText,
-          background: skBackgroundLight,
-          onBackground: skDarkText,
-          error: Colors.red.shade700,
-          onError: skBackgroundWhite,
+          primary: appPrimaryColor, // Using new palette
+          onPrimary: skBackgroundWhite, // Text/icons on primary color
+          secondary: appSecondaryColor, // Using new palette
+          onSecondary: skDarkText,      // Text/icons on secondary color (can be skPureBlack if needed)
+          surface: skBackgroundWhite,   // Card backgrounds, dialogs
+          onSurface: skDarkText,        // Text/icons on surfaces
+          background: skBackgroundLight,// General app background
+          onBackground: skDarkText,     // Text/icons on background
+          error: appErrorColor,         // Error color
+          onError: skBackgroundWhite,   // Text/icons on error color
           brightness: Brightness.light,
         ),
         appBarTheme: AppBarTheme(
-          backgroundColor: skPrimaryGreen,
-          foregroundColor: skBackgroundWhite,
+          backgroundColor: appPrimaryColor, // Using new palette
+          foregroundColor: skBackgroundWhite, // Text/icons on app bar
           elevation: 1.0,
-          titleTextStyle: GoogleFonts.pacifico(
+          titleTextStyle: TextStyle(
+            fontFamily: 'Inter', // Ensure 'Inter' is in pubspec.yaml and assets
             fontSize: 24,
-            fontWeight: FontWeight.normal,
             color: skBackgroundWhite,
           ),
           iconTheme: IconThemeData(color: skBackgroundWhite),
         ),
         textTheme: TextTheme(
-          displayLarge: GoogleFonts.pacifico(fontSize: 48, fontWeight: FontWeight.normal, color: logoTextBlack), // Using logoTextBlack for pure black accent
-          displayMedium: GoogleFonts.pacifico(fontSize: 40, fontWeight: FontWeight.normal, color: logoTextBlack),
-          displaySmall: GoogleFonts.pacifico(fontSize: 34, fontWeight: FontWeight.normal, color: logoTextBlack),
-
-          headlineLarge: GoogleFonts.pacifico(fontSize: 28, fontWeight: FontWeight.normal, color: logoTextBlack),
-          headlineMedium: GoogleFonts.pacifico(fontSize: 24, fontWeight: FontWeight.normal, color: logoTextBlack),
-          headlineSmall: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w600, color: skDarkText),
-
-          titleLarge: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600, color: skDarkText),
-          titleMedium: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.15),
-          titleSmall: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.1),
-
-          bodyLarge: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w400, color: skDarkText, letterSpacing: 0.5),
-          bodyMedium: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w400, color: skDarkText, letterSpacing: 0.25),
-          bodySmall: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w400, color: skDarkText, letterSpacing: 0.4),
-
-          labelLarge: GoogleFonts.montserrat(fontSize: 15, fontWeight: FontWeight.bold, color: skBackgroundWhite, letterSpacing: 1.25),
-          labelMedium: GoogleFonts.montserrat(fontSize: 13, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.5),
-          labelSmall: GoogleFonts.montserrat(fontSize: 11, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.5),
+          displayLarge: TextStyle(fontFamily: 'Inter', fontSize: 48, color: skDarkText), // Or skPureBlack
+          displayMedium: TextStyle(fontFamily: 'Inter', fontSize: 40, color: skDarkText),// Or skPureBlack
+          displaySmall: TextStyle(fontFamily: 'Inter', fontSize: 34, color: skDarkText), // Or skPureBlack
+          headlineLarge: TextStyle(fontFamily: 'Inter', fontSize: 28, color: skDarkText),// Or skPureBlack
+          headlineMedium: TextStyle(fontFamily: 'Inter', fontSize: 24, color: skDarkText),// Or skPureBlack
+          headlineSmall: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w600, color: skDarkText),
+          titleLarge: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w600, color: skDarkText),
+          titleMedium: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.15),
+          titleSmall: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.1),
+          bodyLarge: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w400, color: skDarkText, letterSpacing: 0.5),
+          bodyMedium: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w400, color: skDarkText, letterSpacing: 0.25),
+          bodySmall: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w400, color: skLightText, letterSpacing: 0.4), // Using skLightText for smaller body
+          labelLarge: TextStyle(fontFamily: 'Montserrat', fontSize: 15, fontWeight: FontWeight.bold, color: skBackgroundWhite, letterSpacing: 1.25),
+          labelMedium: TextStyle(fontFamily: 'Montserrat', fontSize: 13, fontWeight: FontWeight.w500, color: skDarkText, letterSpacing: 0.5),
+          labelSmall: TextStyle(fontFamily: 'Montserrat', fontSize: 11, fontWeight: FontWeight.w500, color: skLightText, letterSpacing: 0.5), // Using skLightText for small labels
         ).apply(
           bodyColor: skDarkText,
-          displayColor: logoTextBlack,
+          displayColor: skDarkText, // Or skPureBlack
         ),
         cardTheme: CardThemeData(
           elevation: 2.0,
@@ -90,9 +99,9 @@ class MessManagementApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: skPrimaryGreen,
+            backgroundColor: appPrimaryColor, // Using new palette
             foregroundColor: skBackgroundWhite,
-            textStyle: GoogleFonts.montserrat(fontWeight: FontWeight.bold, fontSize: 15),
+            textStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.bold, fontSize: 15),
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
             elevation: 2,
@@ -100,14 +109,14 @@ class MessManagementApp extends StatelessWidget {
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
-            foregroundColor: skPrimaryGreen,
-            textStyle: GoogleFonts.montserrat(fontWeight: FontWeight.w600, fontSize: 14),
+            foregroundColor: appPrimaryColor, // Using new palette
+            textStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, fontSize: 14),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
           ),
         ),
         floatingActionButtonTheme: FloatingActionButtonThemeData(
-          backgroundColor: skSecondaryYellow,
-          foregroundColor: logoTextBlack,
+          backgroundColor: appSecondaryColor, // Using new palette
+          foregroundColor: skDarkText, // Or skPureBlack
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
@@ -116,7 +125,7 @@ class MessManagementApp extends StatelessWidget {
           fillColor: skBackgroundWhite.withOpacity(0.8),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: skPrimaryGreen.withOpacity(0.5)),
+            borderSide: BorderSide(color: appPrimaryColor.withOpacity(0.5)), // Using new palette
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
@@ -124,38 +133,38 @@ class MessManagementApp extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: skPrimaryGreen, width: 2),
+            borderSide: BorderSide(color: appPrimaryColor, width: 2), // Using new palette
           ),
-          labelStyle: GoogleFonts.poppins(color: skPrimaryGreen),
-          hintStyle: GoogleFonts.poppins(color: Colors.grey[500]),
-          prefixIconColor: skPrimaryGreen.withOpacity(0.7),
+          labelStyle: TextStyle(fontFamily: 'Poppins', color: appPrimaryColor), // Using new palette
+          hintStyle: TextStyle(fontFamily: 'Poppins', color: skLightText), // Using skLightText
+          prefixIconColor: appPrimaryColor.withOpacity(0.7), // Using new palette
           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
         chipTheme: ChipThemeData(
-          backgroundColor: skPrimaryGreen.withOpacity(0.1),
-          labelStyle: GoogleFonts.poppins(color: skPrimaryGreen, fontWeight: FontWeight.w500),
-          selectedColor: skPrimaryGreen,
-          secondarySelectedColor: skPrimaryGreen,
-          secondaryLabelStyle: GoogleFonts.poppins(color: skBackgroundWhite, fontWeight: FontWeight.w500),
+          backgroundColor: appPrimaryColor.withOpacity(0.1), // Using new palette
+          labelStyle: TextStyle(fontFamily: 'Poppins', color: appPrimaryColor, fontWeight: FontWeight.w500), // Using new palette
+          selectedColor: appPrimaryColor, // Using new palette
+          secondarySelectedColor: appPrimaryColor, // Using new palette
+          secondaryLabelStyle: TextStyle(fontFamily: 'Poppins', color: skBackgroundWhite, fontWeight: FontWeight.w500),
           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          iconTheme: IconThemeData(color: skPrimaryGreen, size: 18),
+          iconTheme: IconThemeData(color: appPrimaryColor, size: 18), // Using new palette
         ),
         bottomNavigationBarTheme: BottomNavigationBarThemeData(
           backgroundColor: skBackgroundWhite,
-          selectedItemColor: skPrimaryGreen,
+          selectedItemColor: appPrimaryColor, // Using new palette
           unselectedItemColor: skDarkText.withOpacity(0.6),
-          selectedLabelStyle: GoogleFonts.montserrat(fontWeight: FontWeight.w600, fontSize: 11),
-          unselectedLabelStyle: GoogleFonts.montserrat(fontSize: 10),
+          selectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, fontSize: 11),
+          unselectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontSize: 10),
           elevation: 5,
           type: BottomNavigationBarType.fixed,
         ),
         iconTheme: IconThemeData(
-          color: skPrimaryGreen,
+          color: appPrimaryColor, // Using new palette
           size: 24.0,
         ),
         listTileTheme: ListTileThemeData(
-          iconColor: skPrimaryGreen,
+          iconColor: appPrimaryColor, // Using new palette
           tileColor: skBackgroundWhite,
         ),
         dividerTheme: DividerThemeData(
@@ -165,7 +174,7 @@ class MessManagementApp extends StatelessWidget {
         useMaterial3: true,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: LoginScreen(), // Updated to LoginScreen
+      home: LoginScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
