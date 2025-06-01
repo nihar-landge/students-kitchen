@@ -2,13 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/student_model.dart'; // Ensure this path is correct
-import '../services/firestore_service.dart'; // Ensure this path is correct
-// import '../utils/string_extensions.dart'; // If you use .capitalize()
+import '../models/student_model.dart';
+import '../models/user_model.dart'; // Import UserRole
+import '../services/firestore_service.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final FirestoreService firestoreService;
-  AttendanceScreen({required this.firestoreService});
+  final UserRole userRole; // Add userRole parameter
+
+  AttendanceScreen({
+    required this.firestoreService,
+    required this.userRole, // Add to constructor
+  });
 
   @override
   _AttendanceScreenState createState() => _AttendanceScreenState();
@@ -60,13 +65,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       List<Student> allStudents = await widget.firestoreService.getStudentsStream().first;
 
       _allActiveStudentsForDate = allStudents.where((s) {
-        // Ensure student's service period overlaps with the selected date
         DateTime serviceStartDay = DateTime(s.messStartDate.year, s.messStartDate.month, s.messStartDate.day);
         DateTime serviceEndDay = DateTime(s.effectiveMessEndDate.year, s.effectiveMessEndDate.month, s.effectiveMessEndDate.day);
         DateTime selectedDayOnly = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
 
         return (selectedDayOnly.isAtSameMomentAs(serviceStartDay) || selectedDayOnly.isAfter(serviceStartDay)) &&
-            (selectedDayOnly.isAtSameMomentAs(serviceEndDay) || selectedDayOnly.isBefore(serviceEndDay.add(Duration(days:1))) ); // Add(days:1) to include the end day
+            (selectedDayOnly.isAtSameMomentAs(serviceEndDay) || selectedDayOnly.isBefore(serviceEndDay.add(Duration(days:1))) );
       }).toList();
 
       _attendanceStatusMap.clear();
@@ -76,7 +80,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 entry.date.month == _selectedDate.month &&
                 entry.date.day == _selectedDate.day &&
                 entry.mealType == _selectedMealType,
-            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent) // Default to Absent
+            orElse: () => AttendanceEntry(date: _selectedDate, mealType: _selectedMealType, status: AttendanceStatus.absent)
         );
         _attendanceStatusMap[student.id] = existingEntry.status;
       }
@@ -133,6 +137,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _saveAttendance() async {
+    // Guest can mark attendance, but saving might be an owner-only action.
+    // For now, let's assume guests can also save. If not, add a role check:
+    // if (widget.userRole == UserRole.guest) {
+    //   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Guests cannot save attendance changes.')));
+    //   return;
+    // }
+
     if (_allActiveStudentsForDate.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No active students to save attendance for.')));
@@ -144,9 +155,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     for (var student in _allActiveStudentsForDate) {
       final status = _attendanceStatusMap[student.id];
-      // If a student was filtered out by search but was active, their status might not be in the map
-      // if the map was only populated from _displayedStudents. Ensure it's from _allActiveStudentsForDate.
-      // The current _loadActiveStudentsAndInitializeAttendance populates for _allActiveStudentsForDate, so this should be fine.
       if (status == null) continue;
 
       List<AttendanceEntry> updatedLog = List.from(student.attendanceLog);
@@ -171,7 +179,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving attendance: $e'), backgroundColor: Colors.red));
     } finally {
       setStateIfMounted(() { _isLoading = false; });
-      _loadActiveStudentsAndInitializeAttendance();
+      // Optionally re-fetch to confirm, or trust local state if UI updates correctly
+      // _loadActiveStudentsAndInitializeAttendance();
     }
   }
 
@@ -192,6 +201,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // final bool isOwner = widget.userRole == UserRole.owner; // Not used yet, but good to have
+
     return Scaffold(
       appBar: AppBar(
         title: AnimatedSwitcher(
@@ -225,7 +236,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 } else {
                   _searchFocusNode.unfocus();
                   _searchController.clear();
-                  // _searchTerm is cleared by listener, _filterAndSortDisplayedStudents is called by listener
                 }
               });
             },
@@ -261,7 +271,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           style: SegmentedButton.styleFrom(
                             selectedForegroundColor: Theme.of(context).colorScheme.onPrimary,
                             selectedBackgroundColor: Theme.of(context).colorScheme.primary,
-                            // foregroundColor: Theme.of(context).colorScheme.primary, // Color for unselected items
                           )
                       ),
                     ]))
@@ -277,8 +286,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       Switch(
                         value: _sortAbsenteesTop,
                         onChanged: (value) {
-                          _sortAbsenteesTop = value;
-                          _filterAndSortDisplayedStudents();
+                          setStateIfMounted(() { // Added setStateIfMounted
+                            _sortAbsenteesTop = value;
+                            _filterAndSortDisplayedStudents();
+                          });
                         },
                         activeColor: Theme.of(context).colorScheme.primary,
                       ),
@@ -341,8 +352,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 label: Text('Save All Attendance'),
                 onPressed: _allActiveStudentsForDate.isNotEmpty ? _saveAttendance : null,
                 style: ElevatedButton.styleFrom(
-                  // backgroundColor: Theme.of(context).colorScheme.primary, // Uses theme
-                  // foregroundColor: Theme.of(context).colorScheme.onPrimary, // Uses theme
                     minimumSize: Size(double.infinity, 50),
                     textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onPrimary)
                 )

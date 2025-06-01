@@ -4,7 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'firebase_options.dart';
-import 'screens/main_screen.dart';
+// import 'screens/main_screen.dart'; // We will now import LoginScreen
+import 'screens/login_screen.dart'; // Import the new LoginScreen
 
 // Student's Kitchen Color Palette
 const Color skPrimaryGreen = Color(0xFF2D9A4B); // Chef Hat Green
@@ -164,7 +165,7 @@ class MessManagementApp extends StatelessWidget {
         useMaterial3: true,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: MainScreen(),
+      home: LoginScreen(), // Updated to LoginScreen
       debugShowCheckedModeBanner: false,
     );
   }

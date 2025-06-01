@@ -5,17 +5,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/student_model.dart';
 import '../models/app_settings_model.dart';
+import '../models/user_model.dart'; // Import UserRole
 import '../services/firestore_service.dart';
-import '../utils/string_extensions.dart';
-import '../utils/payment_manager.dart'; // Uses PaymentManager and MonthlyDueItem from here
-
-// MonthlyDueItem class is now in payment_manager.dart
+// import '../utils/string_extensions.dart'; // Not used currently
+import '../utils/payment_manager.dart';
 
 class StudentDetailScreen extends StatefulWidget {
   final String studentId;
   final FirestoreService firestoreService;
+  final UserRole userRole; // Accept UserRole
 
-  StudentDetailScreen({required this.studentId, required this.firestoreService});
+  StudentDetailScreen({
+    required this.studentId,
+    required this.firestoreService,
+    required this.userRole, // Update constructor
+  });
 
   @override
   _StudentDetailScreenState createState() => _StudentDetailScreenState();
@@ -40,14 +44,18 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     if (mounted) setState(f);
   }
 
-  // _calculateBillingPeriodsWithPaymentAllocation is now in PaymentManager
-
   void _recordPaymentDialog(Student student, List<MonthlyDueItem> billingPeriodsFromManager, double standardMonthlyFee) {
+    if (widget.userRole == UserRole.guest) return; // Guests cannot record payments
+
     _paymentAmountController.clear();
     _selectedPaymentDate = DateTime.now();
     _paymentForPeriodStart = null;
 
     List<MonthlyDueItem> selectablePeriods = List.from(billingPeriodsFromManager);
+
+    // ... (rest of the _recordPaymentDialog logic remains the same)
+    // Ensure this logic is only callable by Owner role, which is handled by the button visibility.
+    // The dialog content itself doesn't need role checks if the entry point is protected.
 
     if (selectablePeriods.isEmpty && student.originalServiceStartDate.isAfter(DateTime.now().subtract(Duration(days:1)))) {
       DateTime firstPeriodStart = student.originalServiceStartDate;
@@ -58,7 +66,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
       }
 
       selectablePeriods.add(MonthlyDueItem(
-          monthYearDisplay: DateFormat('MMMM yyyy').format(firstPeriodStart) + displaySuffix,
+          monthYearDisplay: DateFormat('MMMM yy').format(firstPeriodStart) + displaySuffix,
           periodStartDate: firstPeriodStart,
           periodEndDate: firstPeriodEnd,
           feeDueForPeriod: standardMonthlyFee,
@@ -68,7 +76,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     if (selectablePeriods.isEmpty) {
       DateTime currentMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
       selectablePeriods.add(MonthlyDueItem(
-          monthYearDisplay: DateFormat('MMMM yyyy').format(currentMonth),
+          monthYearDisplay: DateFormat('MMMM yy').format(currentMonth),
           periodStartDate: currentMonth,
           periodEndDate: DateTime(currentMonth.year, currentMonth.month + 1, 0),
           feeDueForPeriod: standardMonthlyFee,
@@ -171,7 +179,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                             messStartDate: student.messStartDate,
                             originalServiceStartDate: student.originalServiceStartDate,
                             compensatoryDays: student.compensatoryDays,
-                            currentCyclePaid: student.currentCyclePaid,
+                            currentCyclePaid: student.currentCyclePaid, // This will be recalculated
                             attendanceLog: student.attendanceLog,
                             paymentHistory: updatedHistory
                         ),
@@ -189,7 +197,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                       if (!mounted) return;
                       Navigator.of(dlgContext).pop();
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment of $amount recorded')));
-                    } catch (e) { /* ... */ }
+                    } catch (e) { /* ... */
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving payment: $e'), backgroundColor: Colors.red,));
+                    }
                   }),
             ],
           );
@@ -198,11 +209,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     );
   }
 
-  void _handlePaymentStatusChange(Student student, List<MonthlyDueItem> monthlyDues, double standardFee) {
-    _recordPaymentDialog(student, monthlyDues, standardFee);
-  }
 
   void _addCompensatoryDaysDialog(Student student) {
+    if (widget.userRole == UserRole.guest) return; // Guests cannot add days
+
     _compensatoryDaysController.text = "0";
     _compensatoryReasonController.clear();
     showDialog(
@@ -232,7 +242,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error adding days: $e'), backgroundColor: Colors.red));
                     }
                   } else {
-                    Navigator.of(dlgContext).pop();
+                    Navigator.of(dlgContext).pop(); // Close if daysToAdd is not positive
                   }
                 }),
           ],
@@ -242,6 +252,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   }
 
   void _startNewServicePeriod(Student student) async {
+    if (widget.userRole == UserRole.guest) return; // Guests cannot start new periods
+
     DateTime newStartDateForStudent = student.effectiveMessEndDate.add(Duration(days: 1));
     DateTime today = DateTime.now();
     DateTime firstOfThisMonth = DateTime(today.year, today.month, 1);
@@ -254,8 +266,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     try {
       await widget.firestoreService.updateStudentPartial(student.id, {
         'messStartDate': Timestamp.fromDate(newStartDateForStudent),
-        'compensatoryDays': 0,
-        'currentCyclePaid': false,
+        'compensatoryDays': 0, // Reset compensatory days for new period
+        'currentCyclePaid': false, // New period means payment is due
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('New service period for ${student.name} will start from ${DateFormat.yMMMd().format(newStartDateForStudent)}.')));
@@ -266,6 +278,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
   }
 
   void _showDeleteConfirmationDialog(Student student) {
+    if (widget.userRole == UserRole.guest) return; // Guests cannot delete
+
     showDialog(
         context: context,
         builder: (BuildContext ctx) {
@@ -281,11 +295,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                     try {
                       await widget.firestoreService.deleteStudent(student.id);
                       if (!mounted) return;
-                      Navigator.of(ctx).pop();
-                      Navigator.of(context).pop(true);
+                      Navigator.of(ctx).pop(); // Close dialog
+                      Navigator.of(context).pop(true); // Pop detail screen, indicate success
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${student.name} has been deleted.')));
                     } catch (e) {
                       if (!mounted) return;
+                      Navigator.of(ctx).pop(); // Close dialog
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting: $e'), backgroundColor: Colors.red));
                     }
                   }),
@@ -293,6 +308,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
           );
         });
   }
+
+  // _prepareAttendanceEvents and _getAttendanceMarkersForDay remain the same
+  // _showAttendanceLogDialog remains the same (Guests can view attendance)
 
   void _prepareAttendanceEvents(Student student, Map<DateTime, List<AttendanceStatus>> eventsMap) {
     eventsMap.clear();
@@ -380,6 +398,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     );
   }
 
+
   Widget _buildDetailCard(BuildContext context, {required String title, required IconData icon, required List<Widget> children}) {
     return Card(
       elevation: 2,
@@ -417,6 +436,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isOwner = widget.userRole == UserRole.owner;
+
     return StreamBuilder<AppSettings>(
       stream: widget.firestoreService.getAppSettingsStream(),
       builder: (context, appSettingsSnapshot) {
@@ -450,9 +471,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
               onWillPop: () async { Navigator.pop(context, true); return true; },
               child: Scaffold(
                 appBar: AppBar(
-                  title: Text(student.name),
+                  title: Hero( // Keep Hero for name
+                      tag: 'student_name_${student.id}',
+                      child: Material(
+                          type: MaterialType.transparency,
+                          child: Text(student.name)
+                      )
+                  ),
                   actions: [
-                    IconButton(icon: Icon(Icons.delete_outline, color: Colors.redAccent[100]), tooltip: 'Delete Student', onPressed: () => _showDeleteConfirmationDialog(student)),
+                    if (isOwner) // Conditional Delete Button
+                      IconButton(icon: Icon(Icons.delete_outline, color: Colors.redAccent[100]), tooltip: 'Delete Student', onPressed: () => _showDeleteConfirmationDialog(student)),
                   ],
                 ),
                 body: Padding(
@@ -467,88 +495,100 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                       _buildDetailCard(context, title: 'Mess Service Information', icon: Icons.calendar_today_outlined, children: [
                         _buildInfoRow('Original Service Start:', DateFormat.yMMMd().format(student.originalServiceStartDate)),
                         _buildInfoRow('Current Cycle Start:', DateFormat.yMMMd().format(student.messStartDate)),
-                        _buildInfoRow('Compensatory Days:', '${student.compensatoryDays} days'),
+                        if (isOwner) _buildInfoRow('Compensatory Days:', '${student.compensatoryDays} days'), // Conditional
                         _buildInfoRow('Effective Service End Date:', DateFormat.yMMMd().format(student.effectiveMessEndDate), isEmphasized: true),
                       ]),
                       SizedBox(height: 16),
-                      _buildDetailCard(context, title: 'Payment Overview', icon: Icons.monetization_on_outlined, children: [
-                        _buildInfoRow('Standard Monthly Fee:', '₹${standardMonthlyFee.toStringAsFixed(2)}'),
-                        _buildInfoRow('Total Remaining Dues (All Periods):', '₹${totalRemainingAmount.toStringAsFixed(2)}', isEmphasized: totalRemainingAmount > 0),
-                        SizedBox(height: 10),
-                        ElevatedButton.icon(
-                            icon: Icon(Icons.payment),
-                            label: Text('Record New Payment'),
-                            onPressed: () => _handlePaymentStatusChange(student, billingPeriods, standardMonthlyFee),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
-                        SizedBox(height: 10),
-                        Text("Billing Period Breakdown:", style: Theme.of(context).textTheme.titleMedium),
-                        if (billingPeriods.isEmpty) Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: Text("No billing periods generated yet or student not active.", style: TextStyle(fontStyle: FontStyle.italic)),
-                        ) else
-                          ...billingPeriods.map((dueItem) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("${dueItem.monthYearDisplay}:", style: TextStyle(fontWeight: FontWeight.w500)),
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8.0, top: 2.0),
-                                  child: Text(
-                                    "(Period: ${DateFormat.yMMMd().format(dueItem.periodStartDate)} - ${DateFormat.yMMMd().format(dueItem.periodEndDate)})",
-                                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+
+                      // Payment Overview Card - Conditional for Owner
+                      if (isOwner)
+                        _buildDetailCard(context, title: 'Payment Overview', icon: Icons.monetization_on_outlined, children: [
+                          _buildInfoRow('Standard Monthly Fee:', '₹${standardMonthlyFee.toStringAsFixed(2)}'),
+                          _buildInfoRow('Total Remaining Dues (All Periods):', '₹${totalRemainingAmount.toStringAsFixed(2)}', isEmphasized: totalRemainingAmount > 0),
+                          SizedBox(height: 10),
+                          ElevatedButton.icon(
+                              icon: Icon(Icons.payment),
+                              label: Text('Record New Payment'),
+                              onPressed: () => _recordPaymentDialog(student, billingPeriods, standardMonthlyFee),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
+                          SizedBox(height: 10),
+                          Text("Billing Period Breakdown:", style: Theme.of(context).textTheme.titleMedium),
+                          if (billingPeriods.isEmpty) Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: Text("No billing periods generated yet or student not active.", style: TextStyle(fontStyle: FontStyle.italic)),
+                          ) else
+                            ...billingPeriods.map((dueItem) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("${dueItem.monthYearDisplay}:", style: TextStyle(fontWeight: FontWeight.w500)),
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8.0, top: 2.0),
+                                    child: Text(
+                                      "(Period: ${DateFormat.yMMMd().format(dueItem.periodStartDate)} - ${DateFormat.yMMMd().format(dueItem.periodEndDate)})",
+                                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                                    ),
                                   ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8.0, bottom: 4.0),
-                                  child: Text(
-                                    "Paid: ₹${dueItem.amountPaidForPeriod.toStringAsFixed(0)}, Remaining for this Period: ₹${dueItem.remainingForPeriod.toStringAsFixed(0)} (${dueItem.status})",
-                                    style: TextStyle(fontSize: 13, color: dueItem.status == "Paid" ? Colors.green : (dueItem.status == "Partially Paid" ? Colors.orange.shade700 : Colors.red.shade700)),
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8.0, bottom: 4.0),
+                                    child: Text(
+                                      "Paid: ₹${dueItem.amountPaidForPeriod.toStringAsFixed(0)}, Remaining for this Period: ₹${dueItem.remainingForPeriod.toStringAsFixed(0)} (${dueItem.status})",
+                                      style: TextStyle(fontSize: 13, color: dueItem.status == "Paid" ? Colors.green : (dueItem.status == "Partially Paid" ? Colors.orange.shade700 : Colors.red.shade700)),
+                                    ),
                                   ),
-                                ),
-                                if (billingPeriods.last != dueItem) Divider(height: 1, thickness: 0.5),
-                              ],
-                            ),
-                          )).toList(),
-                        SizedBox(height: 10),
-                        TextButton(onPressed: () {
-                          if (student.paymentHistory.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No payment history for ${student.name}.'))); return;
-                          }
-                          showDialog(context: context, builder: (ctx) => AlertDialog(
-                              title: Text("Detailed Payment Entries for ${student.name}"),
-                              content: Container(width: double.maxFinite, child: ListView.builder(
-                                  shrinkWrap: true, itemCount: student.paymentHistory.length,
-                                  itemBuilder: (iCtx, idx) {
-                                    final entry = student.paymentHistory.reversed.toList()[idx];
-                                    return Card(margin: EdgeInsets.symmetric(vertical: 4), child: ListTile(
-                                      title: Text("Paid on: ${DateFormat.yMMMd().format(entry.paymentDate)} - Amount: ₹${entry.amountPaid.toStringAsFixed(2)}"),
-                                      subtitle: Text("For Period Starting: ${DateFormat.yMMMd().format(entry.cycleStartDate)}"),
-                                      leading: Icon(entry.paid ? Icons.check_circle : Icons.history_toggle_off, color: entry.paid ? Colors.green : Colors.blueGrey),
-                                      isThreeLine: false,
-                                    ));
-                                  })),
-                              actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text("Close"))]));
-                        }, child: Text('View All Payment Entries')),
-                      ]),
-                      SizedBox(height: 16),
+                                  if (billingPeriods.last != dueItem) Divider(height: 1, thickness: 0.5),
+                                ],
+                              ),
+                            )).toList(),
+                          SizedBox(height: 10),
+                          TextButton(onPressed: () {
+                            if (student.paymentHistory.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No payment history for ${student.name}.'))); return;
+                            }
+                            showDialog(context: context, builder: (ctx) => AlertDialog(
+                                title: Text("Detailed Payment Entries for ${student.name}"),
+                                content: Container(width: double.maxFinite, child: ListView.builder(
+                                    shrinkWrap: true, itemCount: student.paymentHistory.length,
+                                    itemBuilder: (iCtx, idx) {
+                                      final entry = student.paymentHistory.reversed.toList()[idx]; // Show newest first
+                                      return Card(margin: EdgeInsets.symmetric(vertical: 4), child: ListTile(
+                                        title: Text("Paid on: ${DateFormat.yMMMd().format(entry.paymentDate)} - Amount: ₹${entry.amountPaid.toStringAsFixed(2)}"),
+                                        subtitle: Text("For Period Starting: ${DateFormat.yMMMd().format(entry.cycleStartDate)}"),
+                                        leading: Icon(entry.paid ? Icons.check_circle : Icons.history_toggle_off, color: entry.paid ? Colors.green : Colors.blueGrey),
+                                        isThreeLine: false,
+                                      ));
+                                    })),
+                                actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text("Close"))]));
+                          }, child: Text('View All Payment Entries')),
+                        ]),
+                      if (isOwner) SizedBox(height: 16), // Spacer if payment card is shown
+
+                      // Attendance Card - Visible to both
                       _buildDetailCard(context, title: 'Attendance', icon: Icons.fact_check_outlined, children: [
                         TextButton(
-                            onPressed: () => _showAttendanceLogDialog(student),
+                            onPressed: () => _showAttendanceLogDialog(student), // Guests can view
                             child: Text('View Attendance Calendar')
                         ),
+                        // Note: Marking attendance is done from AttendanceScreen, not here.
                       ]),
                       SizedBox(height: 16),
-                      _buildDetailCard(context, title: 'Manage Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
-                        ElevatedButton.icon(icon: Icon(Icons.add_circle_outline), label: Text('Add Compensatory Days'), onPressed: () => _addCompensatoryDaysDialog(student)),
-                        if (student.compensatoryDays > 0) Padding(padding: const EdgeInsets.only(top: 8.0), child: Text('Current total: ${student.compensatoryDays} days added.', style: TextStyle(fontStyle: FontStyle.italic)))
-                      ]),
-                      SizedBox(height: 24),
-                      ElevatedButton.icon(
-                          icon: Icon(Icons.event_repeat),
-                          label: Text('Start New Service Period'),
-                          onPressed: () => _startNewServicePeriod(student),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 12))),
+
+                      // Manage Compensatory Days Card - Conditional for Owner
+                      if (isOwner)
+                        _buildDetailCard(context, title: 'Manage Compensatory Days', icon: Icons.control_point_duplicate_outlined, children: [
+                          ElevatedButton.icon(icon: Icon(Icons.add_circle_outline), label: Text('Add Compensatory Days'), onPressed: () => _addCompensatoryDaysDialog(student)),
+                          if (student.compensatoryDays > 0) Padding(padding: const EdgeInsets.only(top: 8.0), child: Text('Current total: ${student.compensatoryDays} days added.', style: TextStyle(fontStyle: FontStyle.italic)))
+                        ]),
+                      if (isOwner) SizedBox(height: 24), // Spacer
+
+                      // Start New Service Period Button - Conditional for Owner
+                      if (isOwner)
+                        ElevatedButton.icon(
+                            icon: Icon(Icons.event_repeat),
+                            label: Text('Start New Service Period'),
+                            onPressed: () => _startNewServicePeriod(student),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 12))),
                     ],
                   ),
                 ),

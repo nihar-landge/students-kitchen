@@ -2,14 +2,23 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/student_model.dart';
+import '../models/user_model.dart'; // Import UserRole
 import '../services/firestore_service.dart';
+// Ensure there is NO 'import 'dashboard_screen.dart';' here unless absolutely necessary
 
 class StudentsScreen extends StatefulWidget {
   final FirestoreService firestoreService;
+  final UserRole userRole;
   final VoidCallback onAddStudent;
   final Function(Student) onViewStudent;
 
-  StudentsScreen({required this.firestoreService, required this.onAddStudent, required this.onViewStudent});
+  StudentsScreen({
+    required this.firestoreService,
+    required this.userRole,
+    required this.onAddStudent,
+    required this.onViewStudent,
+    Key? key, // Added Key
+  }) : super(key: key);
 
   @override
   _StudentsScreenState createState() => _StudentsScreenState();
@@ -31,8 +40,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 labelText: 'Search Students by Name (starts with)...',
                 hintText: 'Enter name...',
                 prefixIcon: Icon(Icons.search),
-                // border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)), // Using theme's default
-                // filled: true, fillColor: Colors.grey[100], // Using theme's default
               ),
               onChanged: (value) {
                 setState(() { _searchTerm = value; });
@@ -56,10 +63,11 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   itemCount: studentsToDisplay.length,
                   itemBuilder: (context, index) {
                     final student = studentsToDisplay[index];
+                    bool displayPaidStatusIcon = widget.userRole == UserRole.owner;
+
                     return Card(
-                      // margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Using theme's default
                       child: ListTile(
-                        leading: CircleAvatar(
+                        leading: displayPaidStatusIcon ? CircleAvatar(
                           backgroundColor: student.currentCyclePaid
                               ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
                               : Theme.of(context).colorScheme.error.withOpacity(0.2),
@@ -69,10 +77,10 @@ class _StudentsScreenState extends State<StudentsScreen> {
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(context).colorScheme.error
                           ),
-                        ),
-                        title: Hero( // Wrap student name with Hero
+                        ) : Icon(Icons.person_pin_circle_outlined, color: Theme.of(context).colorScheme.primary), // Generic icon for guest
+                        title: Hero(
                           tag: 'student_name_${student.id}',
-                          child: Material( // Material widget helps with text hero animations
+                          child: Material(
                             type: MaterialType.transparency,
                             child: Text(student.name, style: TextStyle(fontWeight: FontWeight.w500)),
                           ),
@@ -90,12 +98,12 @@ class _StudentsScreenState extends State<StudentsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: widget.userRole == UserRole.owner
+          ? FloatingActionButton.extended(
         onPressed: widget.onAddStudent,
         icon: Icon(Icons.add), label: Text('Add Student'),
-        // backgroundColor: Colors.teal, // Uses theme's FAB color
-        // foregroundColor: Colors.white,
-      ),
+      )
+          : null,
     );
   }
 }
