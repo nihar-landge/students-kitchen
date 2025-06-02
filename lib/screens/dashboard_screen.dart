@@ -1,11 +1,11 @@
 // lib/screens/dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/student_model.dart';
-import '../models/user_model.dart';
+import '../models/student_model.dart'; // Ensure Student, MealType, AttendanceStatus are defined here
+import '../models/user_model.dart';   // Ensure UserRole is defined here
 import '../services/firestore_service.dart';
-import '../models/app_settings_model.dart';
-import '../utils/payment_manager.dart';
+import '../models/app_settings_model.dart'; // Ensure AppSettings is defined here
+import '../utils/payment_manager.dart';  // Ensure PaymentManager and MonthlyDueItem are defined here
 
 class DashboardScreen extends StatelessWidget {
   final FirestoreService firestoreService;
@@ -38,7 +38,6 @@ class DashboardScreen extends StatelessWidget {
         elevation: 0,
       ),
       body: StreamBuilder<List<Student>>(
-        // The stream now defaults to active students from FirestoreService
         stream: firestoreService.getStudentsStream(archiveStatusFilter: StudentArchiveStatusFilter.active),
         builder: (context, studentSnapshot) {
           if (studentSnapshot.connectionState == ConnectionState.waiting) {
@@ -49,7 +48,6 @@ class DashboardScreen extends StatelessWidget {
           }
           final students = studentSnapshot.data ?? [];
 
-          // Add FutureBuilder for AppSettings here
           return FutureBuilder<AppSettings>(
             future: firestoreService.getAppSettingsStream().first, // Fetch settings once
             builder: (context, appSettingsSnapshot) {
@@ -62,7 +60,6 @@ class DashboardScreen extends StatelessWidget {
 
               final standardMonthlyFee = appSettingsSnapshot.data?.standardMonthlyFee ?? 2000.0; // Default if not found
 
-              // Pass students and standardMonthlyFee to _buildDashboardContent
               return _buildDashboardContent(context, students, standardMonthlyFee);
             },
           );
@@ -72,13 +69,11 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildDashboardContent(BuildContext context, List<Student> students, double standardMonthlyFee) {
-    // 'students' list already contains only active, non-archived students due to the stream filter.
     int activeStudentsCount = students.where((s) => s.effectiveMessEndDate.isAfter(DateTime.now())).length;
 
-    // New calculation for paymentsDueCount using PaymentManager
     int newPaymentsDueCount = 0;
     if (userRole == UserRole.owner) {
-      for (var student in students) { // Iterate over already filtered active students
+      for (var student in students) {
         List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
             student,
             standardMonthlyFee,
@@ -91,44 +86,36 @@ class DashboardScreen extends StatelessWidget {
       }
     }
 
-    // --- Time-aware Attendance Logic ---
     DateTime now = DateTime.now();
     MealType currentMealType;
-    String mealTypeLabel;
+    String mealTypeLabel; // Used for Owner's attendance card title
 
-    // Determine current meal type based on time (e.g., cutoff at 3 PM / 15:00 hours)
-    // You can adjust this cutoff time as needed.
-    // For example, morning meal cutoff could be 3 PM (15:00)
-    if (now.hour < 15) { // Before 3 PM is considered morning meal time
+    if (now.hour < 16) { // Before 4 PM is considered morning meal time
       currentMealType = MealType.morning;
       mealTypeLabel = "Morning";
-    } else { // 3 PM or later is considered night meal time
+    } else { // 4 PM or later is considered night meal time
       currentMealType = MealType.night;
       mealTypeLabel = "Night";
     }
 
-    DateTime todayForAttendance = DateTime(now.year, now.month, now.day); // Normalized today for precise comparison
+    DateTime todayForAttendance = DateTime(now.year, now.month, now.day);
     int presentTodayCount = 0;
     int totalActiveTodayForAttendance = 0;
 
-    for (var student in students) { // Iterate over already filtered active students
+    for (var student in students) {
       DateTime serviceStartDateNormalized = DateTime(student.messStartDate.year, student.messStartDate.month, student.messStartDate.day);
       DateTime serviceEndDateNormalized = DateTime(student.effectiveMessEndDate.year, student.effectiveMessEndDate.month, student.effectiveMessEndDate.day);
 
-      // Check if student is active today (service period includes today)
-      // Ensure comparison is date-only by normalizing 'todayForAttendance'
       bool isActiveToday = !todayForAttendance.isBefore(serviceStartDateNormalized) &&
           !todayForAttendance.isAfter(serviceEndDateNormalized);
 
-
       if (isActiveToday) {
         totalActiveTodayForAttendance++;
-        // Check if student was present for the *current* meal type today
         bool wasPresentForCurrentMeal = student.attendanceLog.any((entry) {
           DateTime entryDateNormalized = DateTime(entry.date.year, entry.date.month, entry.date.day);
           return entryDateNormalized.isAtSameMomentAs(todayForAttendance) &&
               entry.status == AttendanceStatus.present &&
-              entry.mealType == currentMealType; // Filter by currentMealType
+              entry.mealType == currentMealType;
         });
         if (wasPresentForCurrentMeal) {
           presentTodayCount++;
@@ -136,11 +123,9 @@ class DashboardScreen extends StatelessWidget {
       }
     }
     String attendanceTodayText = "$presentTodayCount/$totalActiveTodayForAttendance";
-    // --- End of Time-aware Attendance Logic ---
 
-    // Updated logic for "Upcoming Cycle Endings" notifications
     List<Map<String, dynamic>> studentNotificationsData = [];
-    for (var student in students) { // Iterate over already filtered active students
+    for (var student in students) {
       final diffDays = student.effectiveMessEndDate.difference(DateTime.now()).inDays;
       List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
           student, standardMonthlyFee, DateTime.now());
@@ -149,12 +134,11 @@ class DashboardScreen extends StatelessWidget {
 
       bool shouldDisplay = false;
       if (userRole == UserRole.owner) {
-        // Display if nearing end (0-7 days), OR if service ended (diffDays < 0) and still unpaid
-        if ((diffDays >= 0 && diffDays <= 7) || (diffDays < 0 && isUnpaid)) {
+        if ((diffDays >= 0 && diffDays <= 3) || (diffDays < 0 && isUnpaid)) {
           shouldDisplay = true;
         }
       } else { // Guest
-        if (diffDays >= 0 && diffDays <= 7) { // Guests only see nearing end
+        if (diffDays >= 0 && diffDays <= 3) { // Guests only see nearing end
           shouldDisplay = true;
         }
       }
@@ -173,7 +157,6 @@ class DashboardScreen extends StatelessWidget {
       return studentA.effectiveMessEndDate.compareTo(studentB.effectiveMessEndDate);
     });
 
-
     return Container(
       color: Colors.grey[100],
       child: ListView(
@@ -187,26 +170,88 @@ class DashboardScreen extends StatelessWidget {
                 bool isNarrowScreen = constraints.maxWidth < 550;
                 List<Widget> firstRowWidgets = [];
                 List<Widget> secondRowWidgets = [];
-                String attendanceCardTitle = 'Attendance ($mealTypeLabel)'; // Dynamic title for the attendance card
 
-                firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Active Students', activeStudentsCount.toString(), Icons.person_outline, Theme.of(context).primaryColor, onTap: onNavigateToStudentsScreen)));
+                String attendanceCardDisplayTitle;
+                int attendanceIconFlex;
+                int attendanceValueFlex;
+
+                if (userRole == UserRole.owner) {
+                  // MODIFICATION: Owner's attendance card gets a title
+                  attendanceCardDisplayTitle = 'Check-in ($mealTypeLabel)';
+                  attendanceIconFlex = 3; // Owner's attendance card uses 3:2 flex ratio
+                  attendanceValueFlex = 2;
+                } else { // Guest role
+                  // MODIFICATION: Guest's attendance card has no title
+                  attendanceCardDisplayTitle = "";
+                  attendanceIconFlex = 2; // Guest's attendance card uses 2:8 (20:80) flex ratio
+                  attendanceValueFlex = 8;
+                }
+
+                // Active Students card (uses 3:2 flex for both owner and guest, and has a title)
+                firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
+                    context,
+                    'Active Students',
+                    activeStudentsCount.toString(),
+                    Icons.person_outline,
+                    Theme.of(context).primaryColor,
+                    onTap: onNavigateToStudentsScreen,
+                    iconFlexFactor: 3,
+                    valueFlexFactor: 2
+                )));
                 firstRowWidgets.add(SizedBox(width: 10));
 
                 if (userRole == UserRole.owner) {
-                  // Use newPaymentsDueCount here
-                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, 'Payment Due', newPaymentsDueCount.toString(), Icons.credit_card_off_outlined, Theme.of(context).primaryColor, onTap: onNavigateToPaymentsScreenFiltered)));
+                  // Payment Due card for Owner (uses 3:2 flex and has a title)
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
+                      context,
+                      'Payment Due',
+                      newPaymentsDueCount.toString(),
+                      Icons.credit_card_off_outlined,
+                      Theme.of(context).primaryColor,
+                      onTap: onNavigateToPaymentsScreenFiltered,
+                      iconFlexFactor: 3,
+                      valueFlexFactor: 2
+                  )));
 
                   if (!isNarrowScreen) {
                     firstRowWidgets.add(SizedBox(width: 10));
-                    // Use attendanceCardTitle here for Owner
-                    firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
+                    // Attendance card for Owner
+                    firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
+                        context,
+                        attendanceCardDisplayTitle, // Owner gets title "Check-in (Morning/Night)"
+                        attendanceTodayText,
+                        Icons.event_available_outlined,
+                        Theme.of(context).primaryColor,
+                        onTap: onNavigateToAttendance,
+                        iconFlexFactor: attendanceIconFlex, // Uses owner's 3:2
+                        valueFlexFactor: attendanceValueFlex
+                    )));
                   } else {
-                    // Use attendanceCardTitle here for Owner (narrow screen)
-                    secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance, isFullWidth: true)));
+                    // Attendance card for Owner on narrow screen
+                    secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
+                        context,
+                        attendanceCardDisplayTitle, // Owner gets title "Check-in (Morning/Night)"
+                        attendanceTodayText,
+                        Icons.event_available_outlined,
+                        Theme.of(context).primaryColor,
+                        onTap: onNavigateToAttendance,
+                        isFullWidth: true,
+                        iconFlexFactor: attendanceIconFlex, // Uses owner's 3:2
+                        valueFlexFactor: attendanceValueFlex
+                    )));
                   }
                 } else { // Guest role
-                  // Use attendanceCardTitle here for Guest
-                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(context, attendanceCardTitle, attendanceTodayText, Icons.event_available_outlined, Theme.of(context).primaryColor, onTap: onNavigateToAttendance)));
+                  // Attendance card for Guest
+                  firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
+                      context,
+                      attendanceCardDisplayTitle, // Empty title for Guest
+                      attendanceTodayText,
+                      Icons.event_available_outlined,
+                      Theme.of(context).primaryColor,
+                      onTap: onNavigateToAttendance,
+                      iconFlexFactor: attendanceIconFlex, // Uses guest's 2:8
+                      valueFlexFactor: attendanceValueFlex
+                  )));
                 }
 
                 List<Widget> layoutChildren = [Row(children: firstRowWidgets)];
@@ -214,7 +259,6 @@ class DashboardScreen extends StatelessWidget {
                   layoutChildren.add(SizedBox(height: 10));
                   layoutChildren.add(Row(children: secondRowWidgets));
                 }
-
                 return Column(children: layoutChildren);
               }
           ),
@@ -230,7 +274,7 @@ class DashboardScreen extends StatelessWidget {
                 Expanded(
                   child: ElevatedButton.icon(
                       icon: Icon(Icons.person_add_alt_1, size: 20),
-                      label: Text('Add Student', style: TextStyle(fontSize: 14)),
+                      label: Text('Add', style: TextStyle(fontSize: 14)),
                       onPressed: onNavigateToAddStudent,
                       style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal[600],
@@ -276,18 +320,18 @@ class DashboardScreen extends StatelessWidget {
               final diffDays = data['diffDays'] as int;
 
               String subtitleText = 'Mess ends on: ${DateFormat.yMMMd().format(student.effectiveMessEndDate)}';
-              Color cardColor = Colors.pink.shade50; // Default for nearing end
+              Color cardColor = Colors.pink.shade50;
 
               if (userRole == UserRole.owner) {
-                if (diffDays < 0 && isUnpaid) { // Service ended and unpaid
+                if (diffDays < 0 && isUnpaid) {
                   subtitleText += ' (Payment Overdue: ₹${totalRemaining.toStringAsFixed(0)})';
-                  cardColor = Colors.red.shade100; // More prominent for overdue
-                } else if (isUnpaid) { // Active or nearing end, and unpaid
+                  cardColor = Colors.red.shade100;
+                } else if (isUnpaid) {
                   subtitleText += ' (Payment Pending: ₹${totalRemaining.toStringAsFixed(0)})';
-                  cardColor = Colors.orange.shade100; // Warning for pending
-                } else { // Paid
+                  cardColor = Colors.orange.shade100;
+                } else {
                   subtitleText += ' (Paid)';
-                  cardColor = Colors.green.shade50; // Success for paid
+                  cardColor = Colors.green.shade50;
                 }
               }
 
@@ -319,7 +363,11 @@ class DashboardScreen extends StatelessWidget {
       String value,
       IconData? icon,
       Color cardColor,
-      {VoidCallback? onTap, bool isFullWidth = false}) {
+      {VoidCallback? onTap,
+        bool isFullWidth = false,
+        int iconFlexFactor = 3,     // Default to owner's 3:2 preference
+        int valueFlexFactor = 2      // Default to owner's 3:2 preference
+      }) {
     return Card(
       elevation: 2,
       color: cardColor,
@@ -333,41 +381,39 @@ class DashboardScreen extends StatelessWidget {
           constraints: BoxConstraints(minHeight: 100),
           child: Row(
             children: <Widget>[
-              // Left Part: Icon and Title
               Expanded(
-                flex: 3, // Icon and title take up roughly 3 parts of the space
+                flex: iconFlexFactor,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    if (icon != null) ...[
+                    if (icon != null)
                       Icon(icon, size: 28, color: Colors.white.withOpacity(0.9)),
-                      SizedBox(height: 6),
-                    ],
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 2,
-                    ),
+                    if (icon != null && title.isNotEmpty)
+                      SizedBox(height: 10), // Vertical space
+                    if (title.isNotEmpty)
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
                   ],
                 ),
               ),
               SizedBox(width: 8),
-              // Right Part: Value (Count)
               Expanded(
-                flex: 2, // Value (count) takes up roughly 2 parts of the space
+                flex: valueFlexFactor,
                 child: Align(
-                  // Align the text slightly off-center to the right within its allocated space.
                   alignment: Alignment(0.5, 0.0),
                   child: Text(
                     value,
                     style: Theme.of(context).textTheme.displaySmall?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center, // Center text if it wraps (less likely for single digit)
+                    textAlign: TextAlign.center,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

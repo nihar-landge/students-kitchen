@@ -85,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
           print('Network error: ${e.message}');
         }
         else {
-          friendlyErrorMessage = "Login failed: ${e.message}"; // More specific Firebase error
+          friendlyErrorMessage = "Login failed. Please check your credentials and try again."; // More specific Firebase error
           print('Firebase Auth Error: ${e.code} - ${e.message}');
         }
         if (mounted) {

@@ -105,7 +105,7 @@ class SettingsScreen extends StatelessWidget {
                   height: 24.0, // Adjust size as needed
                 ),
                 onPressed: () {
-                  _launchURL('https://www.linkedin.com'); // Replace with actual LinkedIn URL
+                  _launchURL('https://www.linkedin.com/in/nihar-landge/'); // Replace with actual LinkedIn URL
                 },
               ),
               const SizedBox(width: 8),
@@ -117,7 +117,7 @@ class SettingsScreen extends StatelessWidget {
                   height: 24.0, // Adjust size as needed
                 ),
                 onPressed: () {
-                  _launchURL('https://x.com/landge_nihar'); // Replace with actual X (Twitter) URL
+                  _launchURL('https://x.com/landge_nihar/'); // Replace with actual X (Twitter) URL
                 },
               ),
               const SizedBox(width: 8),

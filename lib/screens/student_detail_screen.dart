@@ -92,49 +92,56 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
 
           return AlertDialog(
             title: Text('Record Payment for ${student.name}'),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-                TextFormField(
-                    controller: _paymentAmountController,
-                    decoration: InputDecoration(labelText: 'Amount Paid', border: OutlineInputBorder(), prefixIcon: Icon(Icons.currency_rupee)),
-                    keyboardType: TextInputType.numberWithOptions(decimal: true)),
-                SizedBox(height: 16),
-                Row(children: [
-                  Expanded(child: Text('Payment Date: ${DateFormat.yMMMd().format(_selectedPaymentDate)}')),
-                  TextButton.icon(
-                      icon: Icon(Icons.calendar_today),
-                      label: Text('Change'),
-                      onPressed: () async {
-                        final DateTime? picked = await showDatePicker(
-                            context: dlgContext, initialDate: _selectedPaymentDate,
-                            firstDate: DateTime(2020), lastDate: DateTime.now().add(Duration(days: 365)));
-                        if (picked != null && picked != _selectedPaymentDate) {
-                          stfSetState(() { _selectedPaymentDate = picked; });
-                        }
-                      })
+            content: Container( // Added Container to control dialog width if necessary
+              width: MediaQuery.of(dlgContext).size.width * 0.9, // Make dialog wider
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+                  TextFormField(
+                      controller: _paymentAmountController,
+                      decoration: InputDecoration(labelText: 'Amount Paid', border: OutlineInputBorder(), prefixIcon: Icon(Icons.currency_rupee)),
+                      keyboardType: TextInputType.numberWithOptions(decimal: true)),
+                  SizedBox(height: 16),
+                  Row(children: [
+                    Expanded(child: Text('Payment Date: ${DateFormat.yMMMd().format(_selectedPaymentDate)}')),
+                    TextButton.icon(
+                        icon: Icon(Icons.calendar_today),
+                        label: Text('Change'),
+                        onPressed: () async {
+                          final DateTime? picked = await showDatePicker(
+                              context: dlgContext, initialDate: _selectedPaymentDate,
+                              firstDate: DateTime(2020), lastDate: DateTime.now().add(Duration(days: 365)));
+                          if (picked != null && picked != _selectedPaymentDate) {
+                            stfSetState(() { _selectedPaymentDate = picked; });
+                          }
+                        })
+                  ]),
+                  SizedBox(height: 16),
+                  if (periodsForDropdown.isNotEmpty)
+                    DropdownButtonFormField<DateTime>(
+                      decoration: InputDecoration(labelText: "Payment For Period Starting", border: OutlineInputBorder()),
+                      value: _paymentForPeriodStart,
+                      isExpanded: true, // <<--- ADDED THIS to make dropdown take full width
+                      items: periodsForDropdown
+                          .map((dueItem) => DropdownMenuItem<DateTime>(
+                        value: dueItem.periodStartDate,
+                        child: Text( // Text widget for the dropdown item
+                          "${dueItem.monthYearDisplay} (Due: ₹${dueItem.remainingForPeriod.toStringAsFixed(0)})",
+                          overflow: TextOverflow.ellipsis, // <<--- ADDED THIS to handle long text
+                        ),
+                      ))
+                          .toList(),
+                      onChanged: (DateTime? newValue) {
+                        stfSetState(() { _paymentForPeriodStart = newValue; });
+                      },
+                      validator: (value) => value == null ? 'Please select a period' : null,
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text("No periods with outstanding dues available for selection.", style: TextStyle(fontStyle: FontStyle.italic)),
+                    ),
                 ]),
-                SizedBox(height: 16),
-                if (periodsForDropdown.isNotEmpty)
-                  DropdownButtonFormField<DateTime>(
-                    decoration: InputDecoration(labelText: "Payment For Period Starting", border: OutlineInputBorder()),
-                    value: _paymentForPeriodStart,
-                    items: periodsForDropdown
-                        .map((dueItem) => DropdownMenuItem<DateTime>(
-                      value: dueItem.periodStartDate,
-                      child: Text(dueItem.monthYearDisplay + " (Due: ₹${dueItem.remainingForPeriod.toStringAsFixed(0)})"),
-                    ))
-                        .toList(),
-                    onChanged: (DateTime? newValue) {
-                      stfSetState(() { _paymentForPeriodStart = newValue; });
-                    },
-                    validator: (value) => value == null ? 'Please select a period' : null,
-                  )
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text("No periods with outstanding dues available for selection.", style: TextStyle(fontStyle: FontStyle.italic)),
-                  ),
-              ]),
+              ),
             ),
             actions: <Widget>[
               TextButton(child: Text('Cancel'), onPressed: () => Navigator.of(dlgContext).pop()),
@@ -602,8 +609,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                               child: Text("No billing periods generated yet or student not active.", style: TextStyle(fontStyle: FontStyle.italic)),
                             ) else
                               SizedBox(
-                                height: 120,
-                                child: SingleChildScrollView(
+                                height: 120, // Constrain height for scrollability
+                                child: SingleChildScrollView( // Make this part scrollable if content overflows
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: billingPeriods.map((dueItem) => Padding(

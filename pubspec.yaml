@@ -38,7 +38,9 @@ dependencies:
   animations: ^2.0.11
   firebase_auth: ^4.20.0
   url_launcher: ^6.3.0
-  font_awesome_flutter: ^10.7.0 # Use the latest version available
+  font_awesome_flutter: ^10.7.0
+  connectivity_plus: ^6.0.3
+  provider: ^6.1.2 # Use the latest version available
 
   # cupertino_icons: ^1.0.6 # Usually included
 
