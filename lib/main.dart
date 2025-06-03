@@ -34,9 +34,11 @@ Future<void> main() async {
 }
 
 class MessManagementApp extends StatelessWidget {
+  const MessManagementApp({super.key});
   @override
   Widget build(BuildContext context) {
     // final TextTheme baseTextTheme = Theme.of(context).textTheme; // Not strictly needed for this correction
+
 
     // You can choose which green to use as the main primary color for the theme.
     // Let's use skBasilGreen as the primary for this example.
@@ -59,8 +61,6 @@ class MessManagementApp extends StatelessWidget {
             onSecondary: skDarkText,
             surface: skBackgroundWhite,
             onSurface: skDarkText,
-            background: skBackgroundLight,
-            onBackground: skDarkText,
             error: appErrorColor,
             onError: skBackgroundWhite,
             brightness: Brightness.light,
@@ -128,10 +128,10 @@ class MessManagementApp extends StatelessWidget {
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
-            fillColor: skBackgroundWhite.withOpacity(0.8),
+            fillColor: skBackgroundWhite.withAlpha((255 * 0.8).round()),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: appPrimaryColor.withOpacity(0.5)),
+              borderSide: BorderSide(color: appPrimaryColor.withAlpha(128)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -143,11 +143,11 @@ class MessManagementApp extends StatelessWidget {
             ),
             labelStyle: TextStyle(fontFamily: 'Poppins', color: appPrimaryColor),
             hintStyle: TextStyle(fontFamily: 'Poppins', color: skLightText),
-            prefixIconColor: appPrimaryColor.withOpacity(0.7),
+            prefixIconColor: appPrimaryColor.withAlpha((255 * 0.7).round()),
             contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           ),
           chipTheme: ChipThemeData(
-            backgroundColor: appPrimaryColor.withOpacity(0.1),
+            backgroundColor: appPrimaryColor.withAlpha((255 * 0.1).round()),
             labelStyle: TextStyle(fontFamily: 'Poppins', color: appPrimaryColor, fontWeight: FontWeight.w500),
             selectedColor: appPrimaryColor,
             secondarySelectedColor: appPrimaryColor,
@@ -159,7 +159,7 @@ class MessManagementApp extends StatelessWidget {
           bottomNavigationBarTheme: BottomNavigationBarThemeData(
             backgroundColor: skBackgroundWhite,
             selectedItemColor: appPrimaryColor,
-            unselectedItemColor: skDarkText.withOpacity(0.6),
+            unselectedItemColor: skDarkText.withAlpha((255 * 0.6).round()),
             selectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, fontSize: 11),
             unselectedLabelStyle: TextStyle(fontFamily: 'Montserrat', fontSize: 10),
             elevation: 5,

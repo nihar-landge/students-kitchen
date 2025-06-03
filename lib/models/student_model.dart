@@ -26,9 +26,9 @@ class Student {
     List<AttendanceEntry>? attendanceLog,
     List<PaymentHistoryEntry>? paymentHistory,
     this.isArchived = false, // Default to not archived
-  })  : this.nameLowercase = name.toLowerCase(),
-        this.attendanceLog = attendanceLog ?? [],
-        this.paymentHistory = paymentHistory ?? [];
+  })  : nameLowercase = name.toLowerCase(), // Removed this.
+        attendanceLog = attendanceLog ?? [], // Removed this.
+        paymentHistory = paymentHistory ?? []; // Removed this.
 
   String get contactNumber => id;
   DateTime get baseEndDate => messStartDate.add(Duration(days: 30));

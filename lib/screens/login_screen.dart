@@ -1,7 +1,7 @@
 // lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore for fetching roles (optional but good practice)
+// import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore for fetching roles (optional but good practice)
 
 import '../models/user_model.dart'; // Your UserRole enum
 import 'main_screen.dart'; // To navigate after login
@@ -114,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
   // This makes your system more flexible if a single Firebase account could have different app roles
   // or if you want to verify the selected role against a database record.
   // For your current UI, _selectedRole is likely sufficient as the source of truth for appRole.
-  Future<UserRole> _fetchAppRoleFromFirestore(String uid, UserRole selectedRoleHint) async {
+  /* Future<UserRole> _fetchAppRoleFromFirestore(String uid, UserRole selectedRoleHint) async {
     try {
       DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('user_roles').doc(uid).get();
       if (userDoc.exists && userDoc.data() != null) {
@@ -140,7 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
       print("Error fetching role from Firestore: $e. Defaulting to selected role.");
       return selectedRoleHint; // Fallback to the role selected in the UI
     }
-  }
+  } */
 
 
   @override

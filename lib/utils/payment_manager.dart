@@ -42,7 +42,7 @@ class PaymentManager {
       return billingPeriods;
     }
 
-    DateTime periodIteratorStart = student.originalServiceStartDate;
+  //  DateTime periodIteratorStart = student.originalServiceStartDate;
     DateTime calculationRangeEnd = DateTime(upToDate.year, upToDate.month, DateTime(upToDate.year, upToDate.month + 1, 0).day);
     if(student.effectiveMessEndDate.isBefore(calculationRangeEnd)){
       calculationRangeEnd = student.effectiveMessEndDate;

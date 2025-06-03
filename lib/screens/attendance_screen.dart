@@ -10,19 +10,20 @@ class AttendanceScreen extends StatefulWidget {
   final FirestoreService firestoreService;
   final UserRole userRole; // Add userRole parameter
 
-  AttendanceScreen({
+  const AttendanceScreen({
+    super.key, // Add super.key and make constructor const
     required this.firestoreService,
-    required this.userRole, // Add to constructor
+    required this.userRole,
   });
 
   @override
-  _AttendanceScreenState createState() => _AttendanceScreenState();
+  AttendanceScreenState createState() => AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> {
+class AttendanceScreenState extends State<AttendanceScreen> {
   DateTime _selectedDate = DateTime.now();
   MealType _selectedMealType = MealType.morning;
-  Map<String, AttendanceStatus> _attendanceStatusMap = {};
+  final Map<String, AttendanceStatus> _attendanceStatusMap = {};
   List<Student> _allActiveStudentsForDate = [];
   List<Student> _displayedStudents = [];
   bool _isLoading = true;
@@ -87,7 +88,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       _filterAndSortDisplayedStudents();
     } catch (e) {
       if (!mounted) return;
-      print("Error loading students for attendance: $e");
+      // print("Error loading students for attendance: $e");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error loading students: $e"), backgroundColor: Colors.red,));
     }
     setStateIfMounted(() { _isLoading = false; });
@@ -193,7 +194,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       decoration: InputDecoration(
         hintText: 'Search Name or ID...',
         border: InputBorder.none,
-        hintStyle: TextStyle(color: Theme.of(context).appBarTheme.foregroundColor?.withOpacity(0.7)),
+        hintStyle: TextStyle(color: Theme.of(context).appBarTheme.foregroundColor?.withAlpha(179)),
       ),
       style: TextStyle(color: Theme.of(context).appBarTheme.foregroundColor, fontSize: 16.0),
     );

@@ -10,17 +10,17 @@ class ArchivedStudentsScreen extends StatefulWidget {
   final FirestoreService firestoreService;
   final UserRole userRole; // Pass user role for StudentDetailScreen
 
-  ArchivedStudentsScreen({
+  const ArchivedStudentsScreen({ // Add const
+    super.key, // Use super.key
     required this.firestoreService,
     required this.userRole,
-    Key? key,
-  }) : super(key: key);
+  });
 
   @override
-  _ArchivedStudentsScreenState createState() => _ArchivedStudentsScreenState();
+  ArchivedStudentsScreenState createState() => ArchivedStudentsScreenState();
 }
 
-class _ArchivedStudentsScreenState extends State<ArchivedStudentsScreen> {
+class ArchivedStudentsScreenState extends State<ArchivedStudentsScreen> {
   String _searchTerm = '';
 
   void _navigateToStudentDetail(BuildContext navContext, Student student) {

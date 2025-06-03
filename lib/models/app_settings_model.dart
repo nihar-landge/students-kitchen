@@ -1,7 +1,7 @@
 // lib/models/app_settings_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-const String APP_SETTINGS_DOC_ID = "app_config"; // Fixed document ID for app settings
+const String appSettingsDocId = "app_config"; // Fixed document ID for app settings
 
 class AppSettings {
   final double standardMonthlyFee;

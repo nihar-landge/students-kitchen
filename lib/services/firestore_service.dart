@@ -14,7 +14,7 @@ class FirestoreService {
   Stream<AppSettings> getAppSettingsStream() {
     return _db
         .collection(_settingsCollection)
-        .doc(APP_SETTINGS_DOC_ID)
+        .doc(appSettingsDocId)
         .snapshots()
         .map((snapshot) {
       if (snapshot.exists) {
@@ -27,7 +27,7 @@ class FirestoreService {
   Future<void> updateStandardMonthlyFee(double newFee) {
     return _db
         .collection(_settingsCollection)
-        .doc(APP_SETTINGS_DOC_ID)
+        .doc(appSettingsDocId)
         .set({'standardMonthlyFee': newFee}, SetOptions(merge: true));
   }
 

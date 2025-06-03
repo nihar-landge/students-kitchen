@@ -6,13 +6,13 @@ import '../services/firestore_service.dart';
 
 class AddStudentScreen extends StatefulWidget {
   final FirestoreService firestoreService;
-  AddStudentScreen({required this.firestoreService});
+  const AddStudentScreen({super.key, required this.firestoreService});
 
   @override
-  _AddStudentScreenState createState() => _AddStudentScreenState();
+  AddStudentScreenState createState() => AddStudentScreenState();
 }
 
-class _AddStudentScreenState extends State<AddStudentScreen> {
+class AddStudentScreenState extends State<AddStudentScreen> {
   final _formKey = GlobalKey<FormState>();
   String _studentName = '';
   String _contactNumber = '';
