@@ -74,7 +74,7 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('About App'),
-            subtitle: const Text('Version 1.2.1 (Role Access)'),
+            subtitle: const Text('Version 1.4.3'),
             onTap: () {},
           ),
           const Divider(),
@@ -87,7 +87,7 @@ class SettingsScreen extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(top: 16.0),
             child: Text(
-              'CONECT!',
+              'CONECT! TO DEV.',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 18.0,

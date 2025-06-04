@@ -2,7 +2,7 @@
 import 'package:intl/intl.dart';
 import '../models/student_model.dart'; // Assuming Student, PaymentHistoryEntry are here
 
-// MonthlyDueItem class definition (Simplified)
+// MonthlyDueItem class definition
 class MonthlyDueItem {
   final String monthYearDisplay;
   final DateTime periodStartDate;
@@ -37,60 +37,128 @@ class PaymentManager {
   static List<MonthlyDueItem> calculateBillingPeriodsWithPaymentAllocation(
       Student student, double standardMonthlyFee, DateTime upToDate) {
     List<MonthlyDueItem> billingPeriods = [];
-    if (student.originalServiceStartDate.isAfter(upToDate) &&
-        !(student.originalServiceStartDate.year == upToDate.year && student.originalServiceStartDate.month == upToDate.month)) {
+
+    // Determine the effective end for calculations. This limits how far we generate.
+    DateTime overallCalculationCutoff = DateTime(upToDate.year, upToDate.month, DateTime(upToDate.year, upToDate.month + 1, 0).day);
+    if (student.effectiveMessEndDate.isBefore(overallCalculationCutoff)) {
+      overallCalculationCutoff = student.effectiveMessEndDate;
+    }
+
+    // If the student's service hasn't even started by originalServiceStartDate relative to overallCalculationCutoff, return empty.
+    if (student.originalServiceStartDate.isAfter(overallCalculationCutoff)) {
       return billingPeriods;
     }
 
-  //  DateTime periodIteratorStart = student.originalServiceStartDate;
-    DateTime calculationRangeEnd = DateTime(upToDate.year, upToDate.month, DateTime(upToDate.year, upToDate.month + 1, 0).day);
-    if(student.effectiveMessEndDate.isBefore(calculationRangeEnd)){
-      calculationRangeEnd = student.effectiveMessEndDate;
+    DateTime currentCycleStartDateIterator = student.originalServiceStartDate;
+
+    // Sanity check: student.messStartDate should not be before originalServiceStartDate.
+    // This `actualMessStartDate` is the student's current designated service start.
+    DateTime actualMessStartDate = student.messStartDate;
+    if (actualMessStartDate.isBefore(student.originalServiceStartDate)) {
+      actualMessStartDate = student.originalServiceStartDate;
     }
 
-    int periodIndex = 0;
-    DateTime currentMonthEffectiveStart = student.originalServiceStartDate;
+    int safetyBreak = 0; // To prevent potential infinite loops with complex date scenarios
 
-    while(currentMonthEffectiveStart.isBefore(calculationRangeEnd) || currentMonthEffectiveStart.isAtSameMomentAs(calculationRangeEnd)) {
-      DateTime currentPeriodBillingStart;
-      DateTime currentPeriodBillingEnd;
-      String displaySuffix = "";
+    while ((currentCycleStartDateIterator.isBefore(student.effectiveMessEndDate) ||
+        currentCycleStartDateIterator.isAtSameMomentAs(student.effectiveMessEndDate)) &&
+        safetyBreak < 100) { // Added safetyBreak condition
+      safetyBreak++;
 
-      if (periodIndex == 0) {
-        currentPeriodBillingStart = student.originalServiceStartDate;
-        if (student.originalServiceStartDate.day != 1) {
-          displaySuffix = " (from ${DateFormat.d().format(currentPeriodBillingStart)})";
+      // If the start of the cycle we are about to generate is already past the overallCalculationCutoff, stop.
+      if (currentCycleStartDateIterator.isAfter(overallCalculationCutoff)) {
+        break;
+      }
+
+      DateTime periodActualStart = currentCycleStartDateIterator;
+      DateTime periodActualEnd;
+
+      // CASE 1: The current iteration point is before the student's designated current cycle start (actualMessStartDate)
+      if (periodActualStart.isBefore(actualMessStartDate)) {
+        // This is a historical cycle before the student's current `messStartDate`
+        periodActualEnd = periodActualStart.add(Duration(days: 29)); // Standard 30-day historical cycle
+
+        // If this historical cycle would overlap or cross into the `actualMessStartDate`,
+        // truncate its end to be the day before `actualMessStartDate`.
+        if (periodActualEnd.isAfter(actualMessStartDate.subtract(Duration(days: 1)))) {
+          periodActualEnd = actualMessStartDate.subtract(Duration(days: 1));
         }
-      } else {
-        currentPeriodBillingStart = DateTime(currentMonthEffectiveStart.year, currentMonthEffectiveStart.month, 1);
       }
-      currentPeriodBillingEnd = DateTime(currentPeriodBillingStart.year, currentPeriodBillingStart.month + 1, 0);
+      // CASE 2: The current iteration point is at or after actualMessStartDate.
+      // This means we are at the student's current designated service period or a subsequent one.
+      else {
+        // Ensure periodActualStart aligns with actualMessStartDate if the iterator just jumped a gap to it.
+        if (currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate)) {
+          periodActualStart = actualMessStartDate;
+        }
 
-      if (currentPeriodBillingEnd.isAfter(student.effectiveMessEndDate)) {
-        currentPeriodBillingEnd = student.effectiveMessEndDate;
+        // Determine if this specific `periodActualStart` is the one defined by `actualMessStartDate`
+        bool isTheDesignatedCurrentCycle = (periodActualStart.year == actualMessStartDate.year &&
+            periodActualStart.month == actualMessStartDate.month &&
+            periodActualStart.day == actualMessStartDate.day);
+
+        if (isTheDesignatedCurrentCycle) {
+          // This IS the cycle that starts on student.messStartDate (or actualMessStartDate)
+          // Its end is the student's overall effectiveMessEndDate, which includes compensations.
+          periodActualEnd = student.effectiveMessEndDate;
+        } else {
+          // This is a cycle that starts *after* student.messStartDate (actualMessStartDate),
+          // so it should be a standard 30-day cycle, capped by the final student.effectiveMessEndDate.
+          periodActualEnd = periodActualStart.add(Duration(days:29));
+          if (periodActualEnd.isAfter(student.effectiveMessEndDate)) {
+            periodActualEnd = student.effectiveMessEndDate;
+          }
+        }
       }
 
-      if (!currentPeriodBillingStart.isAfter(currentPeriodBillingEnd)) {
-        billingPeriods.add(MonthlyDueItem(
-          monthYearDisplay: DateFormat('MMMM yyyy').format(currentPeriodBillingStart) + displaySuffix,
-          periodStartDate: currentPeriodBillingStart,
-          periodEndDate: currentPeriodBillingEnd,
-          feeDueForPeriod: standardMonthlyFee,
-        ));
+      // Final cap: periodActualEnd cannot go beyond the student's overall effectiveMessEndDate.
+      if (periodActualEnd.isAfter(student.effectiveMessEndDate)) {
+        periodActualEnd = student.effectiveMessEndDate;
       }
 
-      if (currentPeriodBillingEnd.isAtSameMomentAs(student.effectiveMessEndDate)) break;
-
-      if (currentMonthEffectiveStart.month == 12) {
-        currentMonthEffectiveStart = DateTime(currentMonthEffectiveStart.year + 1, 1, 1);
-      } else {
-        currentMonthEffectiveStart = DateTime(currentMonthEffectiveStart.year, currentMonthEffectiveStart.month + 1, 1);
+      // Validate if the calculated period is valid (start is not after end)
+      if (periodActualStart.isAfter(periodActualEnd)) {
+        // This can happen if date adjustments result in an invalid period.
+        // Advance iterator to avoid getting stuck.
+        currentCycleStartDateIterator = periodActualEnd.add(Duration(days: 1));
+        // If after advancing, we are in a gap before actualMessStartDate, jump to actualMessStartDate
+        if (currentCycleStartDateIterator.isBefore(actualMessStartDate) &&
+            !currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate)) {
+          currentCycleStartDateIterator = actualMessStartDate;
+        }
+        continue; // Skip adding this invalid period
       }
-      periodIndex++;
-      if (currentMonthEffectiveStart.isAfter(student.effectiveMessEndDate) && billingPeriods.isNotEmpty && billingPeriods.last.periodEndDate.isAtSameMomentAs(student.effectiveMessEndDate)) break;
+
+      String displayLabel = "Cycle: ${DateFormat.MMMd().format(periodActualStart)} - ${DateFormat.MMMd().format(periodActualEnd)}";
+      if (periodActualStart.year != periodActualEnd.year) {
+        displayLabel = "Cycle: ${DateFormat.yMMMd().format(periodActualStart)} - ${DateFormat.yMMMd().format(periodActualEnd)}";
+      }
+
+      billingPeriods.add(MonthlyDueItem(
+        monthYearDisplay: displayLabel,
+        periodStartDate: periodActualStart,
+        periodEndDate: periodActualEnd,
+        feeDueForPeriod: standardMonthlyFee,
+      ));
+
+      // Prepare for the next iteration: move to the day after the current period ends.
+      currentCycleStartDateIterator = periodActualEnd.add(Duration(days: 1));
+
+      // CRUCIAL GAP JUMP:
+      // If the next cycle's start date (`currentCycleStartDateIterator`) is now before
+      // the student's designated current service start (`actualMessStartDate`),
+      // it means we've processed all relevant historical cycles and the next "real" service
+      // starts at `actualMessStartDate`. So, jump the iterator to `actualMessStartDate`.
+      if (currentCycleStartDateIterator.isBefore(actualMessStartDate) &&
+          !currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate) ) { // Check not already on it
+        currentCycleStartDateIterator = actualMessStartDate;
+      }
     }
 
-    // Allocate payments
+    // Final filter based on overallCalculationCutoff (mainly for display limiting)
+    billingPeriods.removeWhere((bp) => bp.periodStartDate.isAfter(overallCalculationCutoff));
+
+    // Payment allocation logic (remains largely the same)
     List<PaymentHistoryEntry> sortedPayments = List.from(student.paymentHistory);
     sortedPayments.sort((a, b) => a.paymentDate.compareTo(b.paymentDate));
 
@@ -98,10 +166,9 @@ class PaymentManager {
       if (!payment.paid) continue;
       double paymentAmountToAllocate = payment.amountPaid;
 
-      // Try to allocate to the specific period the payment was recorded for
       MonthlyDueItem? specificPeriodDueItem = billingPeriods.firstWhere(
-              (due) => due.periodStartDate.isAtSameMomentAs(payment.cycleStartDate),
-          orElse: () => MonthlyDueItem(monthYearDisplay: "Error", periodStartDate: DateTime(0), periodEndDate: DateTime(0), feeDueForPeriod: 0)
+              (due) => due.periodStartDate.isAtSameMomentAs(payment.cycleStartDate) && due.periodEndDate.isAtSameMomentAs(payment.cycleEndDate),
+          orElse: () => MonthlyDueItem(monthYearDisplay: "Error_NotFound", periodStartDate: DateTime(0), periodEndDate: DateTime(0), feeDueForPeriod: 0)
       );
 
       if (specificPeriodDueItem.periodStartDate.year != 0 && specificPeriodDueItem.status != "Paid") {
@@ -113,7 +180,6 @@ class PaymentManager {
         paymentAmountToAllocate -= paidNow;
       }
 
-      // Allocate any remaining payment amount to the oldest unpaid/partially paid periods (FIFO for leftovers)
       if(paymentAmountToAllocate > 0) {
         for (var dueItem in billingPeriods) {
           if (paymentAmountToAllocate <= 0) break;
@@ -128,8 +194,6 @@ class PaymentManager {
         }
       }
     }
-    // Removed the second pass that explicitly set carriedForwardDue.
-    // Each MonthlyDueItem now stands on its own regarding its fee and payments against it.
     return billingPeriods;
   }
 }
