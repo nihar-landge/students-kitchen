@@ -45,30 +45,14 @@ class PaymentManager {
       return billingPeriods;
     }
 
-    // Loop through each recorded service period (e.g., [Apr-May], [Jul-Aug])
+    // --- REVISED LOGIC ---
+    // Each entry in the serviceHistory is now treated as a SINGLE billing cycle.
     for (var period in student.serviceHistory) {
       DateTime serviceStartDate = (period['startDate'] as Timestamp).toDate();
       DateTime serviceEndDate = (period['endDate'] as Timestamp).toDate();
 
-      // For each service period, generate the 30-day billing cycles within it.
-      DateTime cycleIterator = serviceStartDate;
-      while (cycleIterator.isBefore(serviceEndDate)) {
-        final DateTime cycleStartDate = cycleIterator;
-        DateTime cycleEndDate = cycleStartDate.add(Duration(days: 29));
-
-        if (cycleEndDate.isAfter(serviceEndDate)) {
-          cycleEndDate = serviceEndDate;
-        }
-
-        if (cycleStartDate.isAfter(cycleEndDate)) {
-          break;
-        }
-
-        // Create and add the billing item. This naturally skips any gaps between service periods.
-        billingPeriods.add(_createDueItem(cycleStartDate, cycleEndDate, appSettings));
-
-        cycleIterator = cycleStartDate.add(Duration(days: 30));
-      }
+      // The entire period is ONE billing cycle. Do not break it into 30-day chunks.
+      billingPeriods.add(_createDueItem(serviceStartDate, serviceEndDate, appSettings));
     }
 
     _allocatePayments(student, billingPeriods);
@@ -90,6 +74,7 @@ class PaymentManager {
     );
   }
 
+  // The _allocatePayments function remains unchanged.
   static void _allocatePayments(Student student, List<MonthlyDueItem> billingPeriods) {
     List<PaymentHistoryEntry> sortedPayments = List.from(student.paymentHistory);
     sortedPayments.sort((a, b) => a.paymentDate.compareTo(b.paymentDate));

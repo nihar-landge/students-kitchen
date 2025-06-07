@@ -254,7 +254,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                         updatedHistory.last['endDate'] = Timestamp.fromDate(newEndDate);
 
                         await widget.firestoreService.updateStudentPartial(student.id, {
-                          'serviceHistory': updatedHistory
+                          'serviceHistory': updatedHistory,
+                          'compensatoryDays': FieldValue.increment(daysToAdd)
                         });
                       }
 
@@ -315,6 +316,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
       await widget.firestoreService.updateStudentPartial(student.id, {
         'messStartDate': Timestamp.fromDate(manualStartDate), // Update this for display
         'serviceHistory': updatedHistory,
+        'compensatoryDays': 0,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('New service period for ${student.name} manually set to start from ${DateFormat.yMMMd().format(manualStartDate)}.')));
