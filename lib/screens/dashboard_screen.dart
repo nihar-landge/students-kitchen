@@ -1,11 +1,11 @@
 // lib/screens/dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/student_model.dart'; // Ensure Student, MealType, AttendanceStatus are defined here
-import '../models/user_model.dart';   // Ensure UserRole is defined here
+import '../models/student_model.dart';
+import '../models/user_model.dart';
 import '../services/firestore_service.dart';
-import '../models/app_settings_model.dart'; // Ensure AppSettings is defined here
-import '../utils/payment_manager.dart';  // Ensure PaymentManager and MonthlyDueItem are defined here
+import '../models/app_settings_model.dart';
+import '../utils/payment_manager.dart';
 
 class DashboardScreen extends StatelessWidget {
   final FirestoreService firestoreService;
@@ -16,7 +16,7 @@ class DashboardScreen extends StatelessWidget {
   final VoidCallback onNavigateToAddStudent;
   final Function(Student) onViewStudentDetails;
 
-  final String ownerName = "Owner"; // This could be dynamic in a real app
+  final String ownerName = "Owner";
 
   DashboardScreen({
     required this.firestoreService,
@@ -48,8 +48,9 @@ class DashboardScreen extends StatelessWidget {
           }
           final students = studentSnapshot.data ?? [];
 
-          return FutureBuilder<AppSettings>(
-            future: firestoreService.getAppSettingsStream().first, // Fetch settings once
+          // MODIFIED: Changed from FutureBuilder to StreamBuilder to get live updates of settings
+          return StreamBuilder<AppSettings>(
+            stream: firestoreService.getAppSettingsStream(),
             builder: (context, appSettingsSnapshot) {
               if (appSettingsSnapshot.connectionState == ConnectionState.waiting && !appSettingsSnapshot.hasData) {
                 return Center(child: CircularProgressIndicator(key: ValueKey("settings_loader_for_dashboard")));
@@ -58,9 +59,11 @@ class DashboardScreen extends StatelessWidget {
                 return Center(child: Text('Error loading app settings: ${appSettingsSnapshot.error}'));
               }
 
-              final standardMonthlyFee = appSettingsSnapshot.data?.standardMonthlyFee ?? 2000.0; // Default if not found
+              // MODIFIED: Get the full AppSettings object
+              final appSettings = appSettingsSnapshot.data!;
 
-              return _buildDashboardContent(context, students, standardMonthlyFee);
+              // Pass the full object to the build method
+              return _buildDashboardContent(context, students, appSettings);
             },
           );
         },
@@ -68,16 +71,18 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDashboardContent(BuildContext context, List<Student> students, double standardMonthlyFee) {
+  // MODIFIED: Accepts the full AppSettings object now
+  Widget _buildDashboardContent(BuildContext context, List<Student> students, AppSettings appSettings) {
     int activeStudentsCount = students.where((s) => s.effectiveMessEndDate.isAfter(DateTime.now())).length;
 
     int newPaymentsDueCount = 0;
     if (userRole == UserRole.owner) {
       for (var student in students) {
+        // MODIFIED: Pass the full AppSettings object
         List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
             student,
-            standardMonthlyFee,
-            DateTime.now() // Calculate dues up to the current date
+            appSettings, // Pass the AppSettings object here
+            DateTime.now()
         );
         double totalRemaining = duesList.fold(0.0, (sum, item) => sum + item.remainingForPeriod);
         if (totalRemaining > 0) {
@@ -88,12 +93,12 @@ class DashboardScreen extends StatelessWidget {
 
     DateTime now = DateTime.now();
     MealType currentMealType;
-    String mealTypeLabel; // Used for Owner's attendance card title
+    String mealTypeLabel;
 
-    if (now.hour < 16) { // Before 4 PM is considered morning meal time
+    if (now.hour < 16) {
       currentMealType = MealType.morning;
       mealTypeLabel = "Morning";
-    } else { // 4 PM or later is considered night meal time
+    } else {
       currentMealType = MealType.night;
       mealTypeLabel = "Night";
     }
@@ -127,8 +132,9 @@ class DashboardScreen extends StatelessWidget {
     List<Map<String, dynamic>> studentNotificationsData = [];
     for (var student in students) {
       final diffDays = student.effectiveMessEndDate.difference(DateTime.now()).inDays;
+      // MODIFIED: Pass the full AppSettings object
       List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(
-          student, standardMonthlyFee, DateTime.now());
+          student, appSettings, DateTime.now());
       double totalRemaining = duesList.fold(0.0, (sum, item) => sum + item.remainingForPeriod);
       bool isUnpaid = totalRemaining > 0;
 
@@ -137,8 +143,8 @@ class DashboardScreen extends StatelessWidget {
         if ((diffDays >= 0 && diffDays <= 3) || (diffDays < 0 && isUnpaid)) {
           shouldDisplay = true;
         }
-      } else { // Guest
-        if (diffDays >= 0 && diffDays <= 3) { // Guests only see nearing end
+      } else {
+        if (diffDays >= 0 && diffDays <= 3) {
           shouldDisplay = true;
         }
       }
@@ -165,6 +171,7 @@ class DashboardScreen extends StatelessWidget {
           Text(userRole == UserRole.owner ? 'Hello, $ownerName!' : 'Welcome, Guest!', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.black87)),
           SizedBox(height: 20),
 
+          // --- The rest of the buildDashboardContent method remains the same ---
           LayoutBuilder(
               builder: (context, constraints) {
                 bool isNarrowScreen = constraints.maxWidth < 550;
@@ -176,18 +183,15 @@ class DashboardScreen extends StatelessWidget {
                 int attendanceValueFlex;
 
                 if (userRole == UserRole.owner) {
-                  // MODIFICATION: Owner's attendance card gets a title
                   attendanceCardDisplayTitle = 'Check-in ($mealTypeLabel)';
-                  attendanceIconFlex = 3; // Owner's attendance card uses 3:2 flex ratio
+                  attendanceIconFlex = 3;
                   attendanceValueFlex = 2;
-                } else { // Guest role
-                  // MODIFICATION: Guest's attendance card has no title
+                } else {
                   attendanceCardDisplayTitle = "";
-                  attendanceIconFlex = 2; // Guest's attendance card uses 2:8 (20:80) flex ratio
+                  attendanceIconFlex = 2;
                   attendanceValueFlex = 8;
                 }
 
-                // Active Students card (uses 3:2 flex for both owner and guest, and has a title)
                 firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
                     context,
                     'Active Students',
@@ -201,7 +205,6 @@ class DashboardScreen extends StatelessWidget {
                 firstRowWidgets.add(SizedBox(width: 10));
 
                 if (userRole == UserRole.owner) {
-                  // Payment Due card for Owner (uses 3:2 flex and has a title)
                   firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
                       context,
                       'Payment Due',
@@ -215,41 +218,38 @@ class DashboardScreen extends StatelessWidget {
 
                   if (!isNarrowScreen) {
                     firstRowWidgets.add(SizedBox(width: 10));
-                    // Attendance card for Owner
                     firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
                         context,
-                        attendanceCardDisplayTitle, // Owner gets title "Check-in (Morning/Night)"
+                        attendanceCardDisplayTitle,
                         attendanceTodayText,
                         Icons.event_available_outlined,
                         Theme.of(context).primaryColor,
                         onTap: onNavigateToAttendance,
-                        iconFlexFactor: attendanceIconFlex, // Uses owner's 3:2
+                        iconFlexFactor: attendanceIconFlex,
                         valueFlexFactor: attendanceValueFlex
                     )));
                   } else {
-                    // Attendance card for Owner on narrow screen
                     secondRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
                         context,
-                        attendanceCardDisplayTitle, // Owner gets title "Check-in (Morning/Night)"
+                        attendanceCardDisplayTitle,
                         attendanceTodayText,
                         Icons.event_available_outlined,
                         Theme.of(context).primaryColor,
                         onTap: onNavigateToAttendance,
                         isFullWidth: true,
-                        iconFlexFactor: attendanceIconFlex, // Uses owner's 3:2
+                        iconFlexFactor: attendanceIconFlex,
                         valueFlexFactor: attendanceValueFlex
                     )));
                   }
-                } else { // Guest role
-                  // Attendance card for Guest
+                } else {
                   firstRowWidgets.add(Expanded(child: _buildSimpleSummaryCard(
                       context,
-                      attendanceCardDisplayTitle, // Empty title for Guest
+                      attendanceCardDisplayTitle,
                       attendanceTodayText,
                       Icons.event_available_outlined,
                       Theme.of(context).primaryColor,
                       onTap: onNavigateToAttendance,
-                      iconFlexFactor: attendanceIconFlex, // Uses guest's 2:8
+                      iconFlexFactor: attendanceIconFlex,
                       valueFlexFactor: attendanceValueFlex
                   )));
                 }
@@ -365,8 +365,8 @@ class DashboardScreen extends StatelessWidget {
       Color cardColor,
       {VoidCallback? onTap,
         bool isFullWidth = false,
-        int iconFlexFactor = 3,     // Default to owner's 3:2 preference
-        int valueFlexFactor = 2      // Default to owner's 3:2 preference
+        int iconFlexFactor = 3,
+        int valueFlexFactor = 2
       }) {
     return Card(
       elevation: 2,
@@ -390,7 +390,7 @@ class DashboardScreen extends StatelessWidget {
                     if (icon != null)
                       Icon(icon, size: 28, color: Colors.white.withOpacity(0.9)),
                     if (icon != null && title.isNotEmpty)
-                      SizedBox(height: 10), // Vertical space
+                      SizedBox(height: 10),
                     if (title.isNotEmpty)
                       Text(
                         title,

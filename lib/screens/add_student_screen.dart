@@ -1,6 +1,7 @@
 // lib/screens/add_student_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student_model.dart';
 import '../services/firestore_service.dart';
 
@@ -17,7 +18,7 @@ class AddStudentScreenState extends State<AddStudentScreen> {
   String _studentName = '';
   String _contactNumber = '';
   DateTime _messStartDate = DateTime.now();
-  bool _initialPaymentPaid = false; // This is the state variable
+  bool _initialPaymentPaid = false;
   final _initialAmountController = TextEditingController();
 
   Future<void> _selectStartDate(BuildContext context) async {
@@ -42,20 +43,18 @@ class AddStudentScreenState extends State<AddStudentScreen> {
         return;
       }
 
+      // The first service period is 30 days long.
+      final firstPeriodEndDate = _messStartDate.add(Duration(days: 29));
+
       List<PaymentHistoryEntry> initialPaymentHistory = [];
-      double initialAmount = 0.0;
       if (_initialPaymentPaid) {
-        initialAmount = double.tryParse(_initialAmountController.text) ?? 0.0;
+        double initialAmount = double.tryParse(_initialAmountController.text) ?? 0.0;
         if (initialAmount <= 0) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text('If initial payment is paid, please enter a valid amount.'),
               backgroundColor: Colors.red));
           return;
-        }
-        DateTime firstPeriodEndDate = DateTime(_messStartDate.year, _messStartDate.month + 1, 0);
-        if (firstPeriodEndDate.isAfter(_messStartDate.add(Duration(days:29)))){
-          // This logic was for potential proration, can be simplified if always full fee for first period
         }
 
         initialPaymentHistory.add(PaymentHistoryEntry(
@@ -67,14 +66,21 @@ class AddStudentScreenState extends State<AddStudentScreen> {
         ));
       }
 
+      // Create the first entry for the new serviceHistory list
+      final firstServicePeriod = {
+        'startDate': Timestamp.fromDate(_messStartDate),
+        'endDate': Timestamp.fromDate(firstPeriodEndDate),
+      };
+
       final newStudent = Student(
-          id: _contactNumber,
-          name: _studentName,
-          messStartDate: _messStartDate,
-          originalServiceStartDate: _messStartDate,
-          currentCyclePaid: initialAmount > 0 && _initialPaymentPaid, // Corrected: Use _initialPaymentPaid
-          paymentHistory: initialPaymentHistory,
-          attendanceLog: []);
+        id: _contactNumber,
+        name: _studentName,
+        messStartDate: _messStartDate, // Still needed for compatibility/display
+        originalServiceStartDate: _messStartDate,
+        paymentHistory: initialPaymentHistory,
+        attendanceLog: [],
+        serviceHistory: [firstServicePeriod], // Initialize with the first period
+      );
 
       try {
         await widget.firestoreService.addStudent(newStudent);

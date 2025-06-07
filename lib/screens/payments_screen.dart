@@ -4,9 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/student_model.dart';
 import '../models/app_settings_model.dart';
 import '../services/firestore_service.dart';
-import '../utils/payment_manager.dart'; // Import PaymentManager
-
-// MonthlyDueItem class is now in payment_manager.dart
+import '../utils/payment_manager.dart';
 
 class PaymentsScreen extends StatefulWidget {
   final FirestoreService firestoreService;
@@ -39,8 +37,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       _filterOption = widget.initialFilterOption!;
     }
   }
-
-  // REMOVED _calculateMonthlyDuesWithPaymentAllocation - Now in PaymentManager
 
   @override
   Widget build(BuildContext context) {
@@ -85,10 +81,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           if (appSettingsSnapshot.hasError) {
             return Center(child: Text('Error loading settings: ${appSettingsSnapshot.error}'));
           }
-          final standardMonthlyFee = appSettingsSnapshot.data?.standardMonthlyFee ?? 2000.0;
+          // MODIFIED: Get the full AppSettings object
+          final appSettings = appSettingsSnapshot.data!;
 
           return StreamBuilder<List<Student>>(
-            stream: widget.firestoreService.getStudentsStream(),
+            // MODIFIED: Fetch active students only for this overview screen
+            stream: widget.firestoreService.getStudentsStream(archiveStatusFilter: StudentArchiveStatusFilter.active),
             builder: (context, studentSnapshot) {
               if (studentSnapshot.connectionState == ConnectionState.waiting) {
                 return Center(child: CircularProgressIndicator());
@@ -101,7 +99,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               List<Map<String, dynamic>> studentsWithDues = [];
 
               for (var student in allStudents) {
-                List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(student, standardMonthlyFee, DateTime.now());
+                // MODIFIED: Pass the full appSettings object here
+                List<MonthlyDueItem> duesList = PaymentManager.calculateBillingPeriodsWithPaymentAllocation(student, appSettings, DateTime.now());
                 double totalRemaining = duesList.fold(0.0, (sum, item) => sum + item.remainingForPeriod);
                 double totalPaidForAllMonths = duesList.fold(0.0, (sum, item) => sum + item.amountPaidForPeriod);
                 studentsWithDues.add({
@@ -124,19 +123,17 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 filteredStudentsWithDues = studentsWithDues.where((s) => (s['totalRemaining'] as double) <= 0).toList();
               }
 
-              // Corrected sort implementation
               filteredStudentsWithDues.sort((a, b) {
                 double duesA = a['totalRemaining'] as double;
                 double duesB = b['totalRemaining'] as double;
                 if (_sortByHighestDues) {
-                  return duesB.compareTo(duesA); // Highest dues first
+                  return duesB.compareTo(duesA);
                 }
-                return duesA.compareTo(duesB); // Lowest dues first (or default)
+                return duesA.compareTo(duesB);
               });
 
               return Column(
                 children: [
-                  // Corrected Padding widget
                   Padding(
                     padding: const EdgeInsets.all(8.0),
                     child: Chip(

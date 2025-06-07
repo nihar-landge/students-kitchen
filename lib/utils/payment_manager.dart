@@ -1,13 +1,14 @@
 // lib/utils/payment_manager.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import '../models/student_model.dart'; // Assuming Student, PaymentHistoryEntry are here
+import '../models/student_model.dart';
+import '../models/app_settings_model.dart';
 
-// MonthlyDueItem class definition
 class MonthlyDueItem {
   final String monthYearDisplay;
   final DateTime periodStartDate;
   final DateTime periodEndDate;
-  final double feeDueForPeriod; // Standard fee for this period
+  final double feeDueForPeriod;
   double amountPaidForPeriod;
   String status;
 
@@ -23,7 +24,7 @@ class MonthlyDueItem {
 
   double get remainingForPeriod {
     double remaining = feeDueForPeriod - amountPaidForPeriod;
-    return (remaining < 0) ? 0 : remaining; // Ensure not negative
+    return (remaining < 0) ? 0 : remaining;
   }
 
   void updateStatus() {
@@ -34,131 +35,62 @@ class MonthlyDueItem {
 }
 
 class PaymentManager {
+  // FINAL CORRECTED VERSION: Reads from the new serviceHistory list for 100% accuracy.
   static List<MonthlyDueItem> calculateBillingPeriodsWithPaymentAllocation(
-      Student student, double standardMonthlyFee, DateTime upToDate) {
+      Student student, AppSettings appSettings, DateTime upToDate) {
     List<MonthlyDueItem> billingPeriods = [];
 
-    // Determine the effective end for calculations. This limits how far we generate.
-    DateTime overallCalculationCutoff = DateTime(upToDate.year, upToDate.month, DateTime(upToDate.year, upToDate.month + 1, 0).day);
-    if (student.effectiveMessEndDate.isBefore(overallCalculationCutoff)) {
-      overallCalculationCutoff = student.effectiveMessEndDate;
-    }
-
-    // If the student's service hasn't even started by originalServiceStartDate relative to overallCalculationCutoff, return empty.
-    if (student.originalServiceStartDate.isAfter(overallCalculationCutoff)) {
+    // If there is no service history, we can't generate bills.
+    if (student.serviceHistory.isEmpty) {
       return billingPeriods;
     }
 
-    DateTime currentCycleStartDateIterator = student.originalServiceStartDate;
+    // Loop through each recorded service period (e.g., [Apr-May], [Jul-Aug])
+    for (var period in student.serviceHistory) {
+      DateTime serviceStartDate = (period['startDate'] as Timestamp).toDate();
+      DateTime serviceEndDate = (period['endDate'] as Timestamp).toDate();
 
-    // Sanity check: student.messStartDate should not be before originalServiceStartDate.
-    // This `actualMessStartDate` is the student's current designated service start.
-    DateTime actualMessStartDate = student.messStartDate;
-    if (actualMessStartDate.isBefore(student.originalServiceStartDate)) {
-      actualMessStartDate = student.originalServiceStartDate;
-    }
+      // For each service period, generate the 30-day billing cycles within it.
+      DateTime cycleIterator = serviceStartDate;
+      while (cycleIterator.isBefore(serviceEndDate)) {
+        final DateTime cycleStartDate = cycleIterator;
+        DateTime cycleEndDate = cycleStartDate.add(Duration(days: 29));
 
-    int safetyBreak = 0; // To prevent potential infinite loops with complex date scenarios
-
-    while ((currentCycleStartDateIterator.isBefore(student.effectiveMessEndDate) ||
-        currentCycleStartDateIterator.isAtSameMomentAs(student.effectiveMessEndDate)) &&
-        safetyBreak < 100) { // Added safetyBreak condition
-      safetyBreak++;
-
-      // If the start of the cycle we are about to generate is already past the overallCalculationCutoff, stop.
-      if (currentCycleStartDateIterator.isAfter(overallCalculationCutoff)) {
-        break;
-      }
-
-      DateTime periodActualStart = currentCycleStartDateIterator;
-      DateTime periodActualEnd;
-
-      // CASE 1: The current iteration point is before the student's designated current cycle start (actualMessStartDate)
-      if (periodActualStart.isBefore(actualMessStartDate)) {
-        // This is a historical cycle before the student's current `messStartDate`
-        periodActualEnd = periodActualStart.add(Duration(days: 29)); // Standard 30-day historical cycle
-
-        // If this historical cycle would overlap or cross into the `actualMessStartDate`,
-        // truncate its end to be the day before `actualMessStartDate`.
-        if (periodActualEnd.isAfter(actualMessStartDate.subtract(Duration(days: 1)))) {
-          periodActualEnd = actualMessStartDate.subtract(Duration(days: 1));
-        }
-      }
-      // CASE 2: The current iteration point is at or after actualMessStartDate.
-      // This means we are at the student's current designated service period or a subsequent one.
-      else {
-        // Ensure periodActualStart aligns with actualMessStartDate if the iterator just jumped a gap to it.
-        if (currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate)) {
-          periodActualStart = actualMessStartDate;
+        if (cycleEndDate.isAfter(serviceEndDate)) {
+          cycleEndDate = serviceEndDate;
         }
 
-        // Determine if this specific `periodActualStart` is the one defined by `actualMessStartDate`
-        bool isTheDesignatedCurrentCycle = (periodActualStart.year == actualMessStartDate.year &&
-            periodActualStart.month == actualMessStartDate.month &&
-            periodActualStart.day == actualMessStartDate.day);
-
-        if (isTheDesignatedCurrentCycle) {
-          // This IS the cycle that starts on student.messStartDate (or actualMessStartDate)
-          // Its end is the student's overall effectiveMessEndDate, which includes compensations.
-          periodActualEnd = student.effectiveMessEndDate;
-        } else {
-          // This is a cycle that starts *after* student.messStartDate (actualMessStartDate),
-          // so it should be a standard 30-day cycle, capped by the final student.effectiveMessEndDate.
-          periodActualEnd = periodActualStart.add(Duration(days:29));
-          if (periodActualEnd.isAfter(student.effectiveMessEndDate)) {
-            periodActualEnd = student.effectiveMessEndDate;
-          }
+        if (cycleStartDate.isAfter(cycleEndDate)) {
+          break;
         }
-      }
 
-      // Final cap: periodActualEnd cannot go beyond the student's overall effectiveMessEndDate.
-      if (periodActualEnd.isAfter(student.effectiveMessEndDate)) {
-        periodActualEnd = student.effectiveMessEndDate;
-      }
+        // Create and add the billing item. This naturally skips any gaps between service periods.
+        billingPeriods.add(_createDueItem(cycleStartDate, cycleEndDate, appSettings));
 
-      // Validate if the calculated period is valid (start is not after end)
-      if (periodActualStart.isAfter(periodActualEnd)) {
-        // This can happen if date adjustments result in an invalid period.
-        // Advance iterator to avoid getting stuck.
-        currentCycleStartDateIterator = periodActualEnd.add(Duration(days: 1));
-        // If after advancing, we are in a gap before actualMessStartDate, jump to actualMessStartDate
-        if (currentCycleStartDateIterator.isBefore(actualMessStartDate) &&
-            !currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate)) {
-          currentCycleStartDateIterator = actualMessStartDate;
-        }
-        continue; // Skip adding this invalid period
-      }
-
-      String displayLabel = "Cycle: ${DateFormat.MMMd().format(periodActualStart)} - ${DateFormat.MMMd().format(periodActualEnd)}";
-      if (periodActualStart.year != periodActualEnd.year) {
-        displayLabel = "Cycle: ${DateFormat.yMMMd().format(periodActualStart)} - ${DateFormat.yMMMd().format(periodActualEnd)}";
-      }
-
-      billingPeriods.add(MonthlyDueItem(
-        monthYearDisplay: displayLabel,
-        periodStartDate: periodActualStart,
-        periodEndDate: periodActualEnd,
-        feeDueForPeriod: standardMonthlyFee,
-      ));
-
-      // Prepare for the next iteration: move to the day after the current period ends.
-      currentCycleStartDateIterator = periodActualEnd.add(Duration(days: 1));
-
-      // CRUCIAL GAP JUMP:
-      // If the next cycle's start date (`currentCycleStartDateIterator`) is now before
-      // the student's designated current service start (`actualMessStartDate`),
-      // it means we've processed all relevant historical cycles and the next "real" service
-      // starts at `actualMessStartDate`. So, jump the iterator to `actualMessStartDate`.
-      if (currentCycleStartDateIterator.isBefore(actualMessStartDate) &&
-          !currentCycleStartDateIterator.isAtSameMomentAs(actualMessStartDate) ) { // Check not already on it
-        currentCycleStartDateIterator = actualMessStartDate;
+        cycleIterator = cycleStartDate.add(Duration(days: 30));
       }
     }
 
-    // Final filter based on overallCalculationCutoff (mainly for display limiting)
-    billingPeriods.removeWhere((bp) => bp.periodStartDate.isAfter(overallCalculationCutoff));
+    _allocatePayments(student, billingPeriods);
 
-    // Payment allocation logic (remains largely the same)
+    return billingPeriods;
+  }
+
+  static MonthlyDueItem _createDueItem(DateTime startDate, DateTime endDate, AppSettings appSettings) {
+    final double feeForThisPeriod = appSettings.getFeeForDate(startDate);
+    String displayLabel = "Cycle: ${DateFormat.MMMd().format(startDate)} - ${DateFormat.MMMd().format(endDate)}";
+    if (startDate.year != endDate.year) {
+      displayLabel = "Cycle: ${DateFormat.yMMMd().format(startDate)} - ${DateFormat.yMMMd().format(endDate)}";
+    }
+    return MonthlyDueItem(
+      monthYearDisplay: displayLabel,
+      periodStartDate: startDate,
+      periodEndDate: endDate,
+      feeDueForPeriod: feeForThisPeriod,
+    );
+  }
+
+  static void _allocatePayments(Student student, List<MonthlyDueItem> billingPeriods) {
     List<PaymentHistoryEntry> sortedPayments = List.from(student.paymentHistory);
     sortedPayments.sort((a, b) => a.paymentDate.compareTo(b.paymentDate));
 
@@ -194,6 +126,5 @@ class PaymentManager {
         }
       }
     }
-    return billingPeriods;
   }
 }
